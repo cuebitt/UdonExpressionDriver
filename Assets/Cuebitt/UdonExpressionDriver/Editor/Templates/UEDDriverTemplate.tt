@@ -1,0 +1,125 @@
+<#@ template language="C#" hostspecific="false" linePragmas="false" #>
+<#@ import namespace="System.Text" #>
+<#@ import namespace="System.Collections.Generic" #>
+<#@ import namespace="System.Linq" #>
+using UdonSharp;
+using UnityEngine;
+using VRC.SDK3.UdonNetworkCalling;
+
+[UdonBehaviourSyncMode(BehaviourSyncMode.Continuous)]
+public class <#= ClassName #> : UEDBehaviour {
+    // Animator controller
+    private Animator _animator;
+
+    private void Start()
+    {
+        // Get animator component
+        _animator = GetComponent<Animator>();
+
+        // Reset animator values to default
+        ResetParameters();
+    }
+
+    [NetworkCallable]
+    public void ResetParameters()
+    {
+<# foreach (var item in Parameters.ToList())
+   {
+       var publicName = char.ToUpperInvariant(item.name[0]) + item.name[1..];
+       var privateName = "_" + char.ToLowerInvariant(item.name[0]) + item.name[1..];
+#>
+        <#= publicName #> = <#= privateName + "Default" #>;
+<#
+   }
+#>
+    }
+#region Synced Variables
+<# foreach (var item in Parameters.ToList().Where(p => p.networkSynced))
+   {
+       var publicName = char.ToUpperInvariant(item.name[0]) + item.name[1..];
+       var privateName = "_" + char.ToLowerInvariant(item.name[0]) + item.name[1..];
+       var typeName = item.type switch
+       {
+           UEDParameterType.Int => "int",
+           UEDParameterType.Float => "float",
+           UEDParameterType.Bool => "bool",
+           _ => "float" // this might break
+       };
+       var defaultValueFormatted = item.type switch {
+           UEDParameterType.Int => item.defaultValue.ToString(),
+           UEDParameterType.Float => $"{item.defaultValue}f",
+           UEDParameterType.Bool =>
+               char.ToLowerInvariant(item.defaultValue.ToString()[0]) + item.defaultValue.ToString()[1..],
+           _ => "0f"
+           };
+       var animatorMethodTypeFormatted = item.type switch {
+           UEDParameterType.Int => "Integer",
+           UEDParameterType.Float => "Float",
+           UEDParameterType.Bool => "Bool",
+           _ => "Float"
+           };
+#>
+    private readonly int <#= privateName + "Hash" #> = Animator.StringToHash("<#= item.name #>");
+    private readonly <#= typeName #> <#= privateName + "Default" #> = <#= defaultValueFormatted #>;
+
+    [UdonSynced][FieldChangeCallback(nameof(<#= publicName #>))]
+    private <#= typeName #> <#= privateName #>;
+    public <#= typeName #> <#= publicName #>
+    {
+        get => <#= privateName #>;
+        set
+        {
+            <#= privateName #> = value;
+            _animator.Set<#= animatorMethodTypeFormatted  #>(<#= privateName + "Hash" #>, value);
+        }
+    }
+<#
+   }
+#>
+#endregion
+
+#region Local Variables
+<# foreach (var item in Parameters.ToList().Where(p => !p.networkSynced))
+   {
+       var publicName = char.ToUpperInvariant(item.name[0]) + item.name[1..];
+       var privateName = "_" + char.ToLowerInvariant(item.name[0]) + item.name[1..];
+       var typeName = item.type switch
+       {
+           UEDParameterType.Int => "int",
+           UEDParameterType.Float => "float",
+           UEDParameterType.Bool => "bool",
+           _ => "float" // this might break
+       };
+       var defaultValueFormatted = item.type switch {
+           UEDParameterType.Int => item.defaultValue.ToString(),
+           UEDParameterType.Float => $"{item.defaultValue}f",
+           UEDParameterType.Bool =>
+               char.ToLowerInvariant(item.defaultValue.ToString()[0]) + item.defaultValue.ToString()[1..],
+           _ => "0f"
+           };
+       var animatorMethodTypeFormatted = item.type switch {
+           UEDParameterType.Int => "Integer",
+           UEDParameterType.Float => "Float",
+           UEDParameterType.Bool => "Bool",
+           _ => "Float"
+           };
+#>
+    private readonly int <#= privateName + "Hash" #> = Animator.StringToHash("<#= item.name #>");
+    private readonly <#= typeName #> <#= privateName + "Default" #> = <#= defaultValueFormatted #>;
+
+    [FieldChangeCallback(nameof(<#= publicName #>))]
+    private <#= typeName #> <#= privateName #>;
+    public <#= typeName #> <#= publicName #>
+    {
+        get => <#= privateName #>;
+        set
+        {
+            <#= privateName #> = value;
+            _animator.Set<#= animatorMethodTypeFormatted #>(<#= privateName + "Hash" #>, value);
+        }
+    }
+<#
+   }
+#>
+#endregion
+}
