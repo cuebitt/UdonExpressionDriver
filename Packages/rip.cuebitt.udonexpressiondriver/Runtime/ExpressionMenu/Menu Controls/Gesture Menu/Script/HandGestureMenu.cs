@@ -10,17 +10,10 @@ using UnityEditor;
 namespace UdonExpressionDriver
 {
     /// <summary>
-    /// World-space hand-gesture picker. Lists the constant standard VRChat gestures per hand
-    /// (Neutral, Fist, HandOpen, FingerPoint, Victory, RockNRoll, HandGun, ThumbsUp = values 0-7,
-    /// baked into the prefab's buttons) and reports selections back through a UEDPuppetHandler,
-    /// which drives the GestureLeft/GestureRight animator parameters on the controller.
-    ///
-    /// The gesture buttons are Unity UI Toggles in a ToggleGroup: the group enforces the radio
-    /// (single-select) behavior and each Toggle shows its own selected state, so no per-button code
-    /// is needed. Because UdonSharp cannot subscribe to onValueChanged at runtime, every Toggle's
-    /// On Value Changed is wired in the Inspector to OnLeftChanged/OnRightChanged (the bool is
-    /// ignored); the script scans the toggle arrays to find which one is now on. This panel holds no
-    /// synced state itself, so it is BehaviourSyncMode.None like the radial menu.
+    /// World-space hand-gesture picker. Buttons are Unity UI Toggles in a ToggleGroup
+    /// (single-select with no code needed); each Toggle's On Value Changed is wired in
+    /// the Inspector to OnLeftChanged/OnRightChanged, and the script scans the arrays to
+    /// find which one is on. Holds no synced state, so BehaviourSyncMode.None.
     /// </summary>
     [UdonBehaviourSyncMode(BehaviourSyncMode.None)]
     public class HandGestureMenu : UdonSharpBehaviour
@@ -48,6 +41,7 @@ namespace UdonExpressionDriver
 
         private bool _suppress;
 
+        /// <summary>Current left-hand gesture index (0-7). Setting it refreshes the toggle highlight.</summary>
         public int LeftGesture
         {
             get => leftGesture;
@@ -58,6 +52,7 @@ namespace UdonExpressionDriver
             }
         }
 
+        /// <summary>Current right-hand gesture index (0-7). Setting it refreshes the toggle highlight.</summary>
         public int RightGesture
         {
             get => rightGesture;
@@ -73,21 +68,20 @@ namespace UdonExpressionDriver
             _RefreshToggles();
         }
 
-        /// <summary>
-        /// Wired to every left-hand Toggle's On Value Changed. UdonSharp routes Unity UI events through
-        /// SendCustomEvent, which drops the event argument, so this must be parameterless: it scans the
-        /// toggle arrays to find which gesture is now selected (deduping against the current value).
-        /// </summary>
+        /// <summary>Wired to every left-hand Toggle's On Value Changed; parameterless because UdonSharp drops the event arg, so it scans for the now-on toggle.</summary>
         public void OnLeftChanged()
         {
+            // we caused this change in _RefreshToggles; don't echo it back
             if (_suppress) return;
             var index = _FindOn(leftToggles);
+            // no toggle on, or the group re-fired the gesture already selected
             if (index < 0 || index == leftGesture) return;
             leftGesture = index;
+            // panel state only; the controller owns the synced GestureLeft/Right params
             if (handler != null) handler._OnHandGesture(leftGesture, rightGesture);
         }
 
-        /// <summary>Wired to every right-hand Toggle's On Value Changed. See <see cref="OnLeftChanged"/>.</summary>
+        /// <summary>Wired to every right-hand Toggle's On Value Changed; see <see cref="OnLeftChanged"/>.</summary>
         public void OnRightChanged()
         {
             if (_suppress) return;
@@ -118,6 +112,7 @@ namespace UdonExpressionDriver
             if (toggles == null) return;
             for (var i = 0; i < toggles.Length; i++)
             {
+                // a null slot lets a prefab author skip a gesture without shifting the others
                 if (toggles[i] != null)
                     toggles[i].isOn = i == selectedIndex;
             }
@@ -128,6 +123,7 @@ namespace UdonExpressionDriver
             if (toggles == null) return -1;
             for (var i = 0; i < toggles.Length; i++)
             {
+                // ToggleGroup allows at most one on, so the first hit is the answer
                 if (toggles[i] != null && toggles[i].isOn) return i;
             }
             return -1;

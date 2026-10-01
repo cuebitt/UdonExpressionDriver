@@ -8,13 +8,9 @@ using UnityEditor;
 namespace UdonExpressionDriver
 {
     /// <summary>
-    /// Demo driver for the UdonExpressionDriver example scene. Populates a Radial Menu with a
-    /// fake expressions menu (buttons, toggles, submenus) and demonstrates menu navigation
-    /// without driving a real prop's parameters. The puppet controls and the Hand Gestures wedge
-    /// are stubs: they exist to show the wedges but never open the world-space controls (those
-    /// are demonstrated separately in the Puppet Test group). Toggling Hand Gesture Emulation
-    /// appends/removes the 'Hand Gestures' wedge at the top menu level, mirroring
-    /// UEDFullController.
+    /// Demo driver for the example scene: populates a Radial Menu with a fake expressions
+    /// menu and demonstrates navigation without driving a real prop. Puppet wedges and the
+    /// Hand Gestures wedge are stubs that never open their controls.
     /// </summary>
     [UdonBehaviourSyncMode(BehaviourSyncMode.None)]
     public class RadialMenuDemo : UEDMenuHost
@@ -82,6 +78,7 @@ namespace UdonExpressionDriver
             _RefreshMenu();
         }
 
+        /// <summary>Handles a wedge press in the demo menu (buttons/puppets are stubs).</summary>
         public override void _OnControlPressed(int controlIndex)
         {
             var count = _GetCurrentMenuControlCount();
@@ -109,6 +106,7 @@ namespace UdonExpressionDriver
             // Buttons and puppet controls are stubs: nothing to drive, nothing to open.
         }
 
+        /// <summary>Navigates to the given demo menu level.</summary>
         public void _OpenMenu(int menuIndex)
         {
             if (menuIndex < 0 || menuIndex >= _GetMenuCount()) return;
@@ -123,6 +121,7 @@ namespace UdonExpressionDriver
             _RefreshMenu();
         }
 
+        /// <summary>Returns to the previous demo menu level.</summary>
         public void _Back()
         {
             if (_menuStackDepth <= 0)
@@ -137,6 +136,7 @@ namespace UdonExpressionDriver
             _RefreshMenu();
         }
 
+        /// <summary>Enables or disables the demo 'Hand Gestures' wedge.</summary>
         public void _SetHandGestureEmulation(bool enabled)
         {
             if (enableHandGestureEmulation == enabled) return;
@@ -144,11 +144,13 @@ namespace UdonExpressionDriver
             _RefreshMenu();
         }
 
+        /// <summary>Returns whether the demo 'Hand Gestures' wedge is enabled.</summary>
         public bool _GetHandGestureEmulation()
         {
             return enableHandGestureEmulation;
         }
 
+        /// <summary>Toggles the demo 'Hand Gestures' wedge.</summary>
         public void _ToggleHandGestureEmulation()
         {
             _SetHandGestureEmulation(!enableHandGestureEmulation);

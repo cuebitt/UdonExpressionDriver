@@ -11,6 +11,7 @@ using VRC.PackageManagement.Core;
 
 namespace UdonExpressionDriver.Bootstrapper
 {
+    /// <summary>First-import installer: downloads the VRC Avatars SDK and writes the stripped VRCSDK3A.dll the editor code compiles against.</summary>
     [InitializeOnLoad]
     public static class UEDInstaller
     {
@@ -18,15 +19,16 @@ namespace UdonExpressionDriver.Bootstrapper
 
         static UEDInstaller()
         {
+            // kicked off at load, callers await Installed instead of blocking the editor
             Installed = Install();
         }
 
+        /// <summary>Completes with true when UED's stripped SDK assembly is present or was installed.</summary>
         public static Task Installed { get; private set; }
 
         private static async Task<bool> Install()
         {
             var packageName = GetPackageNameForType(typeof(UEDInstaller));
-            // Check for the UED-relevant files from the VRChat Avatars SDK
             if (CheckForExisting(packageName))
             {
                 Debug.Log("[UdonExpressionDriver] Udon Expression Driver is installed.");
@@ -35,12 +37,10 @@ namespace UdonExpressionDriver.Bootstrapper
 
             Debug.Log("[UdonExpressionDriver] Installing Udon Expression Driver...");
 
-            // Download and extract the VRChat Avatars SDK package
             var avatarsPackageUrl = Repos.Official.GetPackage("com.vrchat.avatars").Url;
             var tempFolderPath = Path.Combine(Path.GetTempPath(), "UED_Temp"); // Store in a system temp folder
             Directory.CreateDirectory(tempFolderPath);
 
-            // Start downloading and extracting the avatars sdk zip file
             Debug.Log("[UdonExpressionDriver] Downloading VRC Avatars SDK package...");
             var success = await DownloadAndExtract(avatarsPackageUrl, tempFolderPath);
             if (!success)
@@ -49,26 +49,27 @@ namespace UdonExpressionDriver.Bootstrapper
                 return false;
             }
 
-            // Find downloaded files
+            // the archive name doubles as the name of the folder it unpacks into
             var downloadedPackageDirectory =
                 Path.Combine(tempFolderPath, Path.GetFileNameWithoutExtension(avatarsPackageUrl));
             var avatarsDllPath =
                 Path.Combine(downloadedPackageDirectory, "Runtime/VRCSDK/Plugins/VRCSDK3A.dll");
 
+            // nothing to strip if the SDK ever moves this file
             if (!File.Exists(avatarsDllPath))
             {
                 Debug.LogError($"[Udon Expression Driver] Could not find VRCSDK3A.dll at {avatarsDllPath}");
                 return false;
             }
 
-            // Strip downloaded assembly to only required types
             Debug.Log("[UdonExpressionDriver] Processing downloaded assembly...");
+            // into the package so the editor asmdef can reference it
             var outputAssemblyPath =
                 Path.GetFullPath($"Packages/{packageName}/Editor/VRCSDK/Plugins/VRCSDK3A.dll");
             StripAssembly(avatarsDllPath, outputAssemblyPath);
 
-            // Import the processed assembly into the project
             Debug.Log("[UdonExpressionDriver] Importing downloaded assets...");
+            // sync import so ChangeGuid has a meta to rewrite, which pins the guid
             AssetDatabase.ImportAsset(outputAssemblyPath, ImportAssetOptions.ForceSynchronousImport);
             AssetDatabase.Refresh();
             GuidChanger.ChangeGuid(outputAssemblyPath, AssemblyGuid);
@@ -79,7 +80,7 @@ namespace UdonExpressionDriver.Bootstrapper
 
         private static bool CheckForExisting(string packageName)
         {
-            // Check for existing DLL file
+            // either the full SDK is installed, or our own stripped copy
             var possibleDllPaths = new[]
             {
                 Path.GetFullPath("Packages/com.vrchat.avatars/Runtime/VRCSDK/Plugins/VRCSDK3A.dll"),
@@ -97,13 +98,14 @@ namespace UdonExpressionDriver.Bootstrapper
             var extractDirName = Path.GetFileNameWithoutExtension(tempZip);
             var extractPath = Path.Combine(destination, extractDirName);
 
-            // Download the zip file
             using (var req = UnityWebRequest.Get(url))
             {
+                // stream the zip straight to disk instead of buffering it in memory
                 req.downloadHandler = new DownloadHandlerFile(tempZip);
                 var resp = req.SendWebRequest();
 
 
+                // UnityWebRequest isn't awaitable here, so poll it
                 while (!resp.isDone) await Task.Delay(100);
 
                 if (req.result != UnityWebRequest.Result.Success)
@@ -118,8 +120,10 @@ namespace UdonExpressionDriver.Bootstrapper
                 {
                     var finalExtractPath = extractPath;
 
+                    // unzipping is blocking IO, keep it off the editor's main thread
                     await Task.Run(() =>
                     {
+                        // clear a half-extracted folder left by an earlier failed run
                         if (Directory.Exists(extractPath)) Directory.Delete(extractPath, true);
 
                         using (var archive = ZipFile.OpenRead(tempZip))
@@ -127,6 +131,7 @@ namespace UdonExpressionDriver.Bootstrapper
                             foreach (var entry in archive.Entries)
                             {
                                 var fullPath = Path.Combine(finalExtractPath, entry.FullName);
+                                // zip directory entries have an empty Name, file entries don't
                                 if (string.IsNullOrEmpty(entry.Name))
                                 {
                                     Directory.CreateDirectory(fullPath);
@@ -147,6 +152,7 @@ namespace UdonExpressionDriver.Bootstrapper
                 }
                 finally
                 {
+                    // temp zip goes whether or not the extract worked
                     if (File.Exists(tempZip))
                         File.Delete(tempZip);
                 }
@@ -157,18 +163,21 @@ namespace UdonExpressionDriver.Bootstrapper
 
         private static void StripAssembly(string inputPath, string outputPath)
         {
+            // the only two VRC types the editor code actually touches
             var whitelist = new List<string>
             {
                 "VRCExpressionsMenu",
                 "VRCExpressionParameters"
             };
 
+            // the Plugins folder doesn't exist yet on a fresh install
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
             AssemblyStripper.StripExcept(inputPath, whitelist, outputPath);
         }
 
         private static string GetPackageNameForType(Type type)
         {
+            // no API answers "which package is this in", so read it off the script path
             var script = AssetDatabase.FindAssets("t:MonoScript")
                 .Select(AssetDatabase.GUIDToAssetPath)
                 .Select(AssetDatabase.LoadAssetAtPath<MonoScript>)
@@ -181,7 +190,6 @@ namespace UdonExpressionDriver.Bootstrapper
 
             var assetPath = AssetDatabase.GetAssetPath(script);
 
-            // If it’s under Packages/, extract package name
             if (assetPath.StartsWith("Packages/"))
             {
                 // e.g. "Packages/com.unity.textmeshpro/Scripts/TextMeshPro.cs"
@@ -193,10 +201,7 @@ namespace UdonExpressionDriver.Bootstrapper
                 }
             }
 
-            // Otherwise, it's part of your project (Assets/)
             return "Assets";
         }
-
-        
     }
 }

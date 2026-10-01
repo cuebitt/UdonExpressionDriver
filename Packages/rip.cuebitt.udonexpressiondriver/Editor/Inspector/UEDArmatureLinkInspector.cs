@@ -7,12 +7,8 @@ using VRC.SDK3.Components;
 
 namespace UdonExpressionDriver.Editor
 {
-    /// <summary>
-    /// ArmatureLink inspector: grouped Attach Target / Behavior / Events / Status sections.
-    /// If the prop carries a VRCFury ArmatureLink feature, a "Re-import from VRCFury" button pulls
-    /// its bone and attach point back in; nothing is locked. targetBone is drawn as a grouped
-    /// body-region dropdown.
-    /// </summary>
+    /// Grouped Attach Target / Behavior / Events / Status sections. A "Re-import from VRCFury"
+    /// button pulls the VRCFury ArmatureLink bone/attach point back in when present.
     [CustomEditor(typeof(UEDArmatureLink))]
     public class UEDArmatureLinkInspector : UEDBehaviourInspector
     {
@@ -47,6 +43,7 @@ namespace UdonExpressionDriver.Editor
             EditorGUILayout.PropertyField(serializedObject.FindProperty("rotationOffset"));
             serializedObject.ApplyModifiedProperties();
 
+            // explicit rather than every repaint: once imported, manual edits here win
             if (hasVrcFury)
             {
                 if (GUILayout.Button("Re-import from VRCFury"))
@@ -79,6 +76,7 @@ namespace UdonExpressionDriver.Editor
 
         private void DrawEventsSection()
         {
+            // keyed by instance id, so the foldout survives repaints and picks don't leak between props
             var instanceId = target.GetInstanceID();
             var expanded = EventsExpanded.TryGetValue(instanceId, out var value) && value;
 
@@ -96,11 +94,11 @@ namespace UdonExpressionDriver.Editor
             EditorGUILayout.EndVertical();
         }
 
-        /// <summary>Draws targetBone as a body-region-grouped dropdown instead of the flat enum list.</summary>
         private static void DrawBonePopup(SerializedProperty boneProperty)
         {
             const string tooltip = "Humanoid bone on the wearer's avatar the prop sticks to.";
 
+            // options doubles as popup entries and the enum back-map, so indices must stay in lockstep
             var options = new List<string>();
             var values = new List<HumanBodyBones>();
             var headers = new HashSet<int>();
@@ -130,6 +128,7 @@ namespace UdonExpressionDriver.Editor
             }
 
             var selected = EditorGUILayout.Popup(new GUIContent("Target Bone", tooltip), currentIndex, options.ToArray());
+            // headers carry a bone value too, so guard the write or selecting a group picks a random bone
             if (selected != currentIndex && !headers.Contains(selected) && selected >= 0 && selected < values.Count)
                 boneProperty.enumValueIndex = (int)values[selected];
         }
@@ -150,6 +149,7 @@ namespace UdonExpressionDriver.Editor
         {
             BeginSection("Status");
 
+            // warn here, but don't add it: EnsurePropComponents owns the permanent component pass
             if (link.GetComponent<VRCObjectSync>() == null)
                 EditorGUILayout.HelpBox(
                     "VRC Object Sync will be added automatically, along with a kinematic, gravity-free " +

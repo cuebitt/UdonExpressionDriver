@@ -5,18 +5,17 @@ using VRC.SDK3.Components;
 
 namespace UdonExpressionDriver.Editor
 {
-    /// <summary>
-    /// Editor-side validation for UED components. Run via the inspector or
-    /// Tools > Udon Expression Driver > Validate Selection.
-    /// </summary>
+    /// <summary>Editor-side validation for UED components. Run via Tools > Udon Expression Driver > Validate Selection.</summary>
     public static class UEDValidation
     {
+        /// <summary>Menu item: validates every UED behaviour under the current selection and logs a summary.</summary>
         [MenuItem("Tools/Udon Expression Driver/Validate Selection")]
         public static void ValidateSelection()
         {
             var errors = 0;
             var warnings = 0;
 
+            // include inactive children, an authored prop rarely has them enabled
             foreach (var go in Selection.gameObjects)
             {
                 foreach (var behaviour in go.GetComponentsInChildren<UEDBehaviour>(true))
@@ -29,10 +28,9 @@ namespace UdonExpressionDriver.Editor
                 Debug.Log($"[UED] Validation finished: {errors} error(s), {warnings} warning(s).");
         }
 
+        /// <summary>Runs the subtype-appropriate validators on a behaviour, counting errors and warnings.</summary>
         public static void Validate(UEDBehaviour behaviour, ref int errors, ref int warnings)
         {
-            if (behaviour == null) return;
-
             if (behaviour is UEDFullController controller)
                 ValidateController(controller, ref errors, ref warnings);
             else if (behaviour is UEDArmatureLink armatureLink)
@@ -44,6 +42,7 @@ namespace UdonExpressionDriver.Editor
             var serialized = new SerializedObject(controller);
             var paramCount = serialized.FindProperty("paramNames")?.arraySize ?? 0;
 
+            // parallel arrays: any length mismatch desyncs every index the runtime reads
             foreach (var field in new[] { "paramTypes", "paramDefaults", "paramSynced" })
             {
                 var size = serialized.FindProperty(field)?.arraySize ?? 0;
@@ -61,6 +60,7 @@ namespace UdonExpressionDriver.Editor
 
             if (menuStart != null && menuStart.arraySize > 1)
             {
+                // runtime walks menuControlStart as a prefix-sum, so it can never go backwards
                 var previous = -1;
                 for (var i = 0; i < menuStart.arraySize; i++)
                 {
@@ -82,6 +82,7 @@ namespace UdonExpressionDriver.Editor
             }
 
             var subParamStart = serialized.FindProperty("controlSubParamStart");
+            // -1 start means "no sub-params", anything else indexes into the shared array
             if (subParamStart != null && controlCount > 0)
             {
                 if (subParamStart.arraySize != controlCount)
@@ -107,6 +108,7 @@ namespace UdonExpressionDriver.Editor
 
             if (controlCount > 0)
             {
+                // same -1 sentinel convention for submenu and parameter references
                 var submenu = serialized.FindProperty("controlSubmenuIndex");
                 var paramIndex = serialized.FindProperty("controlParamIndex");
                 for (var i = 0; i < controlCount; i++)

@@ -11,19 +11,8 @@ using VRC.SDKBase.Editor.BuildPipeline;
 namespace UdonExpressionDriver.Editor
 {
     /// <summary>
-    /// Adds and links Physbone/Contact forwarders on every UED prop automatically, behind the
-    /// scenes (VRCFury-style): the forwarders exist only for the play session or the release
-    /// build and are removed again afterwards, so the developer's authored scene is never
-    /// permanently modified.
-    /// Also ensures every UEDArmatureLink prop has a VRC Object Sync + kinematic, gravity-free
-    /// Rigidbody (added permanently if missing) before play/build.
-    ///   - Play mode: added at ExitingEditMode (before the scene is cloned), removed after
-    ///     EnteredEditMode on the next editor update (once the edit scene is restored).
-    ///   - Release build: added at IVRCSDKBuildRequestedCallback (edit mode) so the build bakes them,
-    ///     then removed on the next build/play trigger. Never saved to the scene.
-    /// Revert works by scanning for the autoLinked marker on forwarders (not a static list), so it
-    /// survives the domain reload that happens when entering play mode.
-    /// Idempotent: forwarders are only added where missing. Failures never abort a build.
+    /// Adds forwarders/menu view/puppets/Animator to UED props for play or build, then
+    /// removes everything marked autoLinked so the authored scene is never modified.
     /// </summary>
     [InitializeOnLoad]
     public class UEDBuildAutoLinker : IVRCSDKBuildRequestedCallback
@@ -58,31 +47,22 @@ namespace UdonExpressionDriver.Editor
             }
         }
 
-        /// <summary>
-        /// Runs after leaving play mode once the edit-mode scene has been restored. Skips when the
-        /// editor is already heading back into play, since the next ExitingEditMode pass re-adds and
-        /// cleans up its own leftovers.
-        /// </summary>
+        // Runs after leaving play mode once the edit-mode scene has been restored. Skips when the
+        // editor is already heading back into play, since the next ExitingEditMode pass re-adds and
+        // cleans up its own leftovers.
         private static void RevertAutoLinkedAfterPlay()
         {
             if (EditorApplication.isPlayingOrWillChangePlaymode) return;
 
-            TryRevert("forwarders", RevertForwarders);
-            TryRevert("auto-linked menu/puppet objects", RevertAutoLinked);
-            TryRevert("auto-added Animators", RevertAutoAddedAnimators);
-            TryRevert("auto-added gesture params", RevertAutoAddedGestureParams);
+            RevertForwarders();
+            RevertControllerAdditions();
         }
 
-        private static void TryRevert(string what, System.Action revert)
+        private static void RevertControllerAdditions()
         {
-            try
-            {
-                revert();
-            }
-            catch (System.Exception e)
-            {
-                Debug.LogError($"[UED] Failed to revert {what} after play mode: {e}");
-            }
+            RevertAutoLinked();
+            RevertAutoAddedAnimators();
+            RevertAutoAddedGestureParams();
         }
 
         public int callbackOrder => 100;
@@ -107,9 +87,7 @@ namespace UdonExpressionDriver.Editor
             return true;
         }
 
-        // Every UED behaviour lives somewhere under a scene root; this is the shared walk
-        // used by all the add/revert passes below. Scans every loaded scene so props in
-        // additively loaded scenes are linked too.
+        // scans every loaded scene so props in additively loaded scenes are linked too
         private static IEnumerable<T> FindInScene<T>() where T : Component
         {
             for (var i = 0; i < EditorSceneManager.sceneCount; i++)
@@ -122,20 +100,11 @@ namespace UdonExpressionDriver.Editor
             }
         }
 
-        /// <summary>
-        /// Ensures every UEDArmatureLink prop has a VRC Object Sync and a Rigidbody (kinematic,
-        /// no gravity) added permanently if missing, and every UEDFullController prop has an
-        /// Animator before play/build. The Animator is transient: it is marked auto-added and
-        /// removed again by RevertAutoAddedAnimators when leaving play mode, so the authored
-        /// scene is never saved with it. VRCFury controller/menu/param data is also wired in
-        /// (idempotently).
-        /// </summary>
         private static void EnsurePropComponents()
         {
-            TryRevert("leftover auto-linked menu/puppet objects", RevertAutoLinked);
-            TryRevert("leftover auto-added Animators", RevertAutoAddedAnimators);
-            TryRevert("leftover auto-added gesture params", RevertAutoAddedGestureParams);
+            RevertControllerAdditions();
 
+            // one GameObject can carry several UED behaviours, so dedupe per object not per component
             var processedLinks = new HashSet<GameObject>();
             var processedControllers = new HashSet<GameObject>();
             var addedCount = 0;
@@ -147,6 +116,7 @@ namespace UdonExpressionDriver.Editor
                 var go = link.gameObject;
                 var changed = false;
 
+                // kinematic and gravity-free so the worn prop never falls or fights the wearer
                 if (go.GetComponent<Rigidbody>() == null)
                 {
                     var rigidbody = go.AddComponent<Rigidbody>();
@@ -155,6 +125,7 @@ namespace UdonExpressionDriver.Editor
                     changed = true;
                 }
 
+                // object sync is what makes the worn transform follow the wearer for everyone else
                 if (go.GetComponent<VRCObjectSync>() == null)
                 {
                     go.AddComponent<VRCObjectSync>();
@@ -179,9 +150,11 @@ namespace UdonExpressionDriver.Editor
                 {
                     controller.transform.root.gameObject.AddComponent<Animator>();
                     changed = true;
+                    // hidden marker: revert only ever touches Animators we added, never the user's
                     UEDBehaviourInspector.SetMarker(controller, "autoAddedAnimator", true);
                 }
 
+                // all transient, marked autoLinked so the post-play pass can remove them again
                 if (EnsureMenuView(controller)) changed = true;
                 if (EnsurePuppets(controller)) changed = true;
                 if (IsHandGestureEmulationEnabled(controller) && EnsureHandGestures(controller)) changed = true;
@@ -214,9 +187,9 @@ namespace UdonExpressionDriver.Editor
                 Debug.Log($"[UED] Added missing Rigidbody/VRC Object Sync/Animator to {addedCount} prop(s).");
         }
 
-        /// <summary>Creates a Radial Menu prefab instance as a child of the controller if menuView is unset.</summary>
         private static bool EnsureMenuView(UEDFullController controller)
         {
+            // private UdonSharp fields, so the references have to go through SerializedProperty
             var controllerSerialized = new SerializedObject(controller);
             var menuView = controllerSerialized.FindProperty("menuView");
             if (menuView == null || menuView.objectReferenceValue != null) return false;
@@ -226,6 +199,7 @@ namespace UdonExpressionDriver.Editor
             if (instance == null) return false;
 
             var radialMenu = instance.GetComponent<RadialMenu>();
+            // prefab without the component would otherwise leave a stray empty child in the scene
             if (radialMenu == null)
             {
                 Object.DestroyImmediate(instance);
@@ -236,6 +210,7 @@ namespace UdonExpressionDriver.Editor
             controllerSerialized.ApplyModifiedProperties();
 
             var radialSerialized = new SerializedObject(radialMenu);
+            // the menu drives the controller, so it needs the back-reference too
             radialSerialized.FindProperty("fullController").objectReferenceValue = controller;
             radialSerialized.ApplyModifiedProperties();
 
@@ -244,12 +219,6 @@ namespace UdonExpressionDriver.Editor
             return true;
         }
 
-        /// <summary>
-        /// Creates the world-space puppet controls (Radial Puppet + Axis Puppet) as inactive
-        /// children of the controller if the refs are unset, and wires each puppet's handler
-        /// to the controller. Auto-added objects are marked so they can be removed again
-        /// when leaving play mode.
-        /// </summary>
         private static bool EnsurePuppets(UEDFullController controller)
         {
             var controllerSerialized = new SerializedObject(controller);
@@ -275,6 +244,7 @@ namespace UdonExpressionDriver.Editor
                 changed = true;
             }
 
+            // wiring the handler counts as a change, so the controller still gets dirtied
             if (radial != null)
                 if (LinkPuppetHandler(radial, controller)) changed = true;
 
@@ -285,7 +255,6 @@ namespace UdonExpressionDriver.Editor
             return changed;
         }
 
-        /// <summary>Returns the component already assigned to the controller, or spawns one if unset.</summary>
         private static T EnsurePuppet<T>(SerializedProperty prop, string prefabPath, string objectName, UEDFullController controller) where T : UdonSharpBehaviour
         {
             var existing = prop.objectReferenceValue as T;
@@ -295,11 +264,11 @@ namespace UdonExpressionDriver.Editor
             if (instance == null) return null;
 
             var component = instance.GetComponent<T>();
+            // the marker is how the post-play revert knows this object is ours to destroy
             if (component != null) UEDBehaviourInspector.MarkAutoLinked(component);
             return component;
         }
 
-        /// <summary>True when Hand Gesture Emulation is enabled on the controller.</summary>
         private static bool IsHandGestureEmulationEnabled(UEDFullController controller)
         {
             var serialized = new SerializedObject(controller);
@@ -307,11 +276,6 @@ namespace UdonExpressionDriver.Editor
             return prop != null && prop.boolValue;
         }
 
-        /// <summary>
-        /// Creates the world-space hand gesture menu as an inactive child of the controller if the
-        /// ref is unset, and wires its handler to the controller. Auto-added objects are marked so
-        /// they can be removed again when leaving play mode.
-        /// </summary>
         private static bool EnsureHandGestures(UEDFullController controller)
         {
             var controllerSerialized = new SerializedObject(controller);
@@ -336,7 +300,6 @@ namespace UdonExpressionDriver.Editor
             return changed;
         }
 
-        /// <summary>Instantiates one of the package's prefabs as an inactive child, ready to be auto-linked.</summary>
         private static GameObject InstantiateAutoLinked(string prefabPath, string objectName, Transform parent)
         {
             var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
@@ -351,11 +314,11 @@ namespace UdonExpressionDriver.Editor
 
             instance.name = objectName;
             instance.transform.SetParent(parent, false);
+            // inactive by default: the panel only shows once the player actually opens it
             instance.SetActive(false);
             return instance;
         }
 
-        /// <summary>Assigns the controller as the puppet's typed handler (idempotent).</summary>
         private static bool LinkPuppetHandler(UdonSharpBehaviour puppet, UEDPuppetHandler controller)
         {
             var serialized = new SerializedObject(puppet);
@@ -369,7 +332,7 @@ namespace UdonExpressionDriver.Editor
 
         private static void AutoLinkForwarders()
         {
-            TryRevert("leftover forwarders", RevertForwarders);
+            RevertForwarders();
 
             var processed = new HashSet<GameObject>();
             var totalPhysbone = 0;
@@ -391,6 +354,7 @@ namespace UdonExpressionDriver.Editor
 
         private static void RevertForwarders()
         {
+            // only marked ones, so a forwarder the user added by hand is never touched
             foreach (var forwarder in FindInScene<PhysboneForwarder>())
                 if (UEDBehaviourInspector.IsAutoLinked(forwarder)) DestroyForwarder(forwarder);
 
@@ -400,17 +364,12 @@ namespace UdonExpressionDriver.Editor
 
         private static void DestroyForwarder(UdonSharpBehaviour forwarder)
         {
+            // the backing UdonBehaviour goes too, or its program asset bakes into the build
             var backing = UdonSharpEditorUtility.GetBackingUdonBehaviour(forwarder);
             if (backing != null) Object.DestroyImmediate(backing);
             Object.DestroyImmediate(forwarder);
         }
 
-        /// <summary>
-        /// Removes the Animator that EnsurePropComponents auto-added to a controller's prop (when the
-        /// prop had none) and unsets the controller's animator reference, so the authored scene is
-        /// never saved with it. Idempotent: only controllers carrying the hidden autoAddedAnimator
-        /// marker are touched; pre-existing Animators are never removed.
-        /// </summary>
         private static void RevertAutoAddedAnimators()
         {
             var removed = 0;
@@ -446,12 +405,6 @@ namespace UdonExpressionDriver.Editor
                 Debug.Log($"[UED] Removed {removed} auto-added Animator(s).");
         }
 
-        /// <summary>
-        /// Removes the radial menu view and puppet controls that UEDBuildAutoLinker added
-        /// before play/build, and clears the controller's references to them, so the authored
-        /// scene is never saved with them. Idempotent: only objects carrying the hidden
-        /// autoLinked marker (which survives the play-mode domain reload) are removed.
-        /// </summary>
         private static void RevertAutoLinked()
         {
             var marked = new HashSet<GameObject>();
@@ -470,6 +423,7 @@ namespace UdonExpressionDriver.Editor
 
             if (marked.Count == 0) return;
 
+            // null the refs before destroying the objects, or the controller keeps missing components
             foreach (var controller in FindInScene<UEDFullController>())
                 ClearAutoAddedRefs(controller, marked);
 
@@ -479,7 +433,6 @@ namespace UdonExpressionDriver.Editor
             Debug.Log($"[UED] Removed {marked.Count} auto-added menu/puppet object(s).");
         }
 
-        /// <summary>Clears a controller's refs to auto-added menu/puppet objects before they are destroyed.</summary>
         private static void ClearAutoAddedRefs(UEDFullController controller, HashSet<GameObject> marked)
         {
             var serialized = new SerializedObject(controller);
@@ -508,13 +461,6 @@ namespace UdonExpressionDriver.Editor
             if (changed) serialized.ApplyModifiedProperties();
         }
 
-        /// <summary>
-        /// Removes the GestureLeft/GestureRight params that UEDBuildAutoLinker auto-appended to a
-        /// controller's parameter arrays before play/build (via UEDVrcFuryBridge.EnsureHandGestureParams),
-        /// and clears the marker, so the authored scene is never saved with them. Idempotent: only the
-        /// exact names recorded in autoAddedHandGestureParams are stripped, so a user's own gesture params
-        /// are never touched.
-        /// </summary>
         private static void RevertAutoAddedGestureParams()
         {
             var strippedCount = 0;
@@ -544,6 +490,7 @@ namespace UdonExpressionDriver.Editor
             var syncedProp = serialized.FindProperty("paramSynced");
             if (namesProp == null) return false;
 
+            // the four arrays are parallel and index-aligned, so every one must be filtered together
             var keepNames = new List<string>();
             var keepTypes = new List<int>();
             var keepDefaults = new List<float>();
@@ -566,6 +513,7 @@ namespace UdonExpressionDriver.Editor
 
             if (!removed) return false;
 
+            // shrink-to-size then overwrite: stale trailing entries would survive otherwise
             WriteArray(namesProp, keepNames);
             WriteArray(typesProp, keepTypes);
             WriteArray(defaultsProp, keepDefaults);

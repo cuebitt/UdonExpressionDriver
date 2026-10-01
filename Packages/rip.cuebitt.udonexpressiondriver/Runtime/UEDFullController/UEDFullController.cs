@@ -6,9 +6,7 @@ namespace UdonExpressionDriver
 {
     /// <summary>
     /// Drives a prop's Animator from expression parameters and exposes the prop's
-    /// expressions menu (controls) to a world-space menu view.
-    /// All configuration is embedded on the component, with no runtime ScriptableObject.
-    /// Synced parameters are owner-written; all clients apply them to the Animator.
+    /// menu to a world-space view. All configuration is embedded on the component.
     /// </summary>
     [UdonBehaviourSyncMode(BehaviourSyncMode.Manual)]
     public class UEDFullController : UEDMenuHost
@@ -106,9 +104,11 @@ namespace UdonExpressionDriver
 
         private void Start()
         {
+            // value arrays get sized here, so nothing before this may read them
             _EnsureArrays();
             _InitParamSlots();
 
+            // start from defaults; a deserialization replaces them with the owner's values
             _ApplyAllToAnimator();
             _RefreshMenuView();
 
@@ -118,8 +118,7 @@ namespace UdonExpressionDriver
             _CloseAllMenus();
         }
 
-        // Resolves the GestureLeft/GestureRight param indices and whether the Animator actually
-        // uses them, so the Hand Gestures wedge only appears when both the toggle and the Animator agree.
+        // the gestures wedge only appears when both the toggle and the Animator agree
         private void _InitHandGestures()
         {
             _gestureLeftIndex = _FindParamIndex(GestureLeftName);
@@ -165,6 +164,7 @@ namespace UdonExpressionDriver
         private void _InitParamSlots()
         {
             var count = paramNames.Length;
+            // count first so both value arrays are allocated once, at the right size
             var syncedCount = 0;
             for (var i = 0; i < count; i++)
             {
@@ -202,6 +202,7 @@ namespace UdonExpressionDriver
             }
         }
 
+        /// <summary>Applies synced parameter values to the Animator when remote data arrives.</summary>
         public override void OnDeserialization()
         {
             // A late joiner can receive synced values before Start() has built the slot/hash
@@ -216,18 +217,14 @@ namespace UdonExpressionDriver
             _ApplyAllToAnimator();
         }
 
-        /// <summary>
-        /// True when the local player is the owner of this controller's object. The same
-        /// check _SetParam uses for synced-param writes, so there is one consistent owner
-        /// across menu access and parameter writes. Owner is derived from VRChat's native
-        /// per-object ownership (no custom synced owner state), so late joiners and owner
-        /// reassignment after a player leaves converge automatically.
-        /// </summary>
+        // Owner comes from VRChat's native per-object ownership (no custom synced state),
+        // so late joiners and ownership reassignment converge automatically.
         private bool _IsOwner()
         {
             return Networking.IsOwner(gameObject);
         }
 
+        /// <summary>Closes all open menu UI when the local player loses ownership.</summary>
         public override void OnOwnershipTransferred(VRCPlayerApi player)
         {
             // Ownership loss (drop, takeover, or the owner leaving) hides any open
@@ -235,16 +232,14 @@ namespace UdonExpressionDriver
             if (!_IsOwner()) _CloseAllMenus();
         }
 
-        /// <summary>
-        /// Sets a parameter by index using its float representation. Synced parameters
-        /// are only written by the owner; non-owner writes are ignored.
-        /// </summary>
+        /// <summary>Sets a parameter by index using its float representation. Synced parameters are only written by the owner; non-owner writes are ignored.</summary>
         public void _SetParam(int index, float value)
         {
             if (paramNames == null || index < 0 || index >= paramNames.Length) return;
 
             if (index < paramSynced.Length && paramSynced[index])
             {
+                // non-owner writes get overwritten by the owner's next sync, so drop them
                 if (!Networking.IsOwner(gameObject)) return;
                 _syncedValues[_syncedSlot[index]] = value;
                 RequestSerialization();
@@ -254,21 +249,26 @@ namespace UdonExpressionDriver
                 _localValues[_localSlot[index]] = value;
             }
 
+            // the owner drives its own Animator; remotes get theirs on deserialization
             _ApplyToAnimator(index, value);
         }
 
+        /// <summary>Sets a float parameter by index.</summary>
         public void _SetFloatParam(int index, float value)
         {
             _SetParam(index, value);
         }
 
+        /// <summary>Sets an int parameter by index.</summary>
         public void _SetIntParam(int index, int value)
         {
             _SetParam(index, value);
         }
 
+        /// <summary>Sets a bool parameter by index (written as 1/0).</summary>
         public void _SetBoolParam(int index, bool value)
         {
+            // every value is a float in the arrays, so bools become 1/0
             _SetParam(index, value ? 1f : 0f);
         }
 
@@ -280,6 +280,7 @@ namespace UdonExpressionDriver
             return _localValues[_localSlot[index]];
         }
 
+        /// <summary>Returns the number of expression parameters.</summary>
         public int _GetParamCount()
         {
             return paramNames == null ? 0 : paramNames.Length;
@@ -297,6 +298,7 @@ namespace UdonExpressionDriver
                 var def = i < paramDefaults.Length ? paramDefaults[i] : 0f;
                 if (i < paramSynced.Length && paramSynced[i])
                 {
+                    // a non-owner still resets its local params, it just syncs nothing
                     if (!owner) continue;
                     _syncedValues[_syncedSlot[i]] = def;
                     changed = true;
@@ -307,33 +309,35 @@ namespace UdonExpressionDriver
                 }
             }
 
+            // one sync for the whole reset; changed keeps a no-op reset off the wire
             if (owner && changed) RequestSerialization();
             _ApplyAllToAnimator();
         }
 
+        /// <summary>Returns the number of menu levels (top level included).</summary>
         public int _GetMenuCount()
         {
             if (menuControlStart == null) return 0;
             return menuControlStart.Length > 0 ? menuControlStart.Length - 1 : 0;
         }
 
+        /// <summary>Returns the index of the menu level currently displayed.</summary>
         public int _GetCurrentMenu()
         {
             return _currentMenu;
         }
 
+        /// <summary>Returns how many controls the current menu level shows (including Back and the Hand Gestures wedge).</summary>
         public int _GetCurrentMenuControlCount()
         {
             var count = _TopLevelBaseControlCount();
+            // the gestures wedge is appended here, it has no entry in controlTypes
             if (_currentMenu == 0 && _HandGesturesVisible()) count++;
             return count;
         }
 
-        /// <summary>
-        /// Base control count for the current level. Capped at MaxMenuControls so the Back
-        /// button (auto-prepended to submenus) and Hand Gestures wedge (top-level only) never
-        /// overflow the radial menu's segment array.
-        /// </summary>
+        // Base control count for the current level, capped so the Back button and
+        // Hand Gestures wedge never overflow the radial menu's segment array.
         private int _TopLevelBaseControlCount()
         {
             var count = _NextControlStart() - _CurrentControlStart();
@@ -351,9 +355,11 @@ namespace UdonExpressionDriver
 
         private bool _IsHandGesturesSlot(int controlIndex)
         {
+            // the cap in _TopLevelBaseControlCount reserves exactly this index
             return _currentMenu == 0 && _HandGesturesVisible() && controlIndex == _TopLevelBaseControlCount();
         }
 
+        /// <summary>Returns the display name of the control at the given (display) index.</summary>
         public string _GetControlName(int controlIndex)
         {
             if (_IsHandGesturesSlot(controlIndex)) return HandGesturesControlName;
@@ -363,6 +369,7 @@ namespace UdonExpressionDriver
             return controlNames[flat];
         }
 
+        /// <summary>Returns the icon of the control at the given (display) index.</summary>
         public Texture2D _GetControlIcon(int controlIndex)
         {
             if (_IsHandGesturesSlot(controlIndex)) return null;
@@ -372,10 +379,12 @@ namespace UdonExpressionDriver
             return controlIcons[flat];
         }
 
+        /// <summary>Navigates to the given menu level, pushing the current one onto the back stack.</summary>
         public void _OpenMenu(int menuIndex)
         {
             if (menuIndex < 0 || menuIndex >= _GetMenuCount()) return;
 
+            // depth-capped so a menu that points at itself can't grow the stack forever
             if (_menuStackDepth < MaxMenuStackDepth)
             {
                 _menuStack[_menuStackDepth] = _currentMenu;
@@ -386,8 +395,10 @@ namespace UdonExpressionDriver
             _RefreshMenuView();
         }
 
+        /// <summary>Returns to the previous menu level (top level when the back stack is empty).</summary>
         public void _Back()
         {
+            // an empty stack means we are already at the top, so Back is a reset to level 0
             if (_menuStackDepth <= 0)
             {
                 _currentMenu = 0;
@@ -400,7 +411,6 @@ namespace UdonExpressionDriver
             _RefreshMenuView();
         }
 
-        /// <summary>Refreshes the menu view with the current menu level's controls.</summary>
         private void _RefreshMenuView()
         {
             if (menuView == null) return;
@@ -410,6 +420,7 @@ namespace UdonExpressionDriver
 
             var names = new string[count];
             var icons = new Texture2D[count];
+            // display indices, not flat ones, since Back and the gestures wedge shift them
             for (var i = 0; i < count; i++)
             {
                 names[i] = _GetControlName(i);
@@ -419,17 +430,21 @@ namespace UdonExpressionDriver
             menuView.SetContent(names, icons);
         }
 
+        /// <summary>Shows or hides the menu view, repositioning it in front of the player when shown.</summary>
         public void _SetMenuVisible(bool visible)
         {
             if (menuView == null) return;
+            // place before showing, or it pops in at the prop's origin for a frame
             if (visible) _PlaceMenuView();
             menuView._SetVisible(visible);
         }
 
+        /// <summary>Toggles the menu view (owner only; dismisses an open puppet or gesture panel first).</summary>
         public void _ToggleMenu()
         {
             if (!_IsOwner()) return;
 
+            // a puppet or gesture panel sits over the menu, so toggle dismisses it first
             if (_activePuppetFlat >= 0 || _activeHandGestures)
             {
                 _OnPuppetClose();
@@ -444,12 +459,8 @@ namespace UdonExpressionDriver
             if (wasVisible) _ResetMenuNavigation();
         }
 
-        /// <summary>
-        /// Moves the radial menu in front of the player's head (like the puppet controls) so it is
-        /// immediately visible instead of sitting at the prop's origin. The menu reads from its -Z
-        /// side, so that face is turned toward the player. Does nothing when there is no local
-        /// player yet.
-        /// </summary>
+        // Like the puppet controls, the menu sits in front of the player's head so it is
+        // visible immediately instead of at the prop's origin. Nothing to do before a local player.
         private void _PlaceMenuView()
         {
             if (menuView == null) return;
@@ -464,6 +475,7 @@ namespace UdonExpressionDriver
             menuView.transform.rotation = Quaternion.LookRotation(pos - head.position, Vector3.up);
         }
 
+        /// <summary>Toggles the menu when the local player interacts (owner only).</summary>
         public override void Interact()
         {
             if (!interactTogglesMenu) return;
@@ -471,7 +483,7 @@ namespace UdonExpressionDriver
             _ToggleMenu();
         }
 
-        /// <summary>Handles a press on a control within the current menu level.</summary>
+        /// <summary>Handles a press on a control within the current menu level (owner only).</summary>
         public override void _OnControlPressed(int controlIndex)
         {
             if (!_IsOwner()) return;
@@ -500,6 +512,7 @@ namespace UdonExpressionDriver
                 if (param < 0) return;
 
                 var value = _ControlValue(flat);
+                // pressing the active toggle restores the param default, VRChat's toggle-off
                 var current = _GetParam(param);
                 if (Mathf.Abs(current - value) < ToggleEpsilon)
                     _SetParam(param, param < paramDefaults.Length ? paramDefaults[param] : 0f);
@@ -517,24 +530,24 @@ namespace UdonExpressionDriver
             }
             else if (type == ControlTwoAxis || type == ControlFourAxis || type == ControlRadialPuppet)
             {
+                // puppets write their params through callbacks, not from this press
                 _OpenPuppet(flat);
             }
         }
 
-        /// <summary>
-        /// Opens the world-space puppet control for the given control and hides the menu.
-        /// The puppet writes into this controller's params via the typed handler callbacks.
-        /// </summary>
+        // Hides the menu and lets the puppet take the spot in front of the player's head.
         private void _OpenPuppet(int flat)
         {
             if (!_IsOwner()) return;
 
             var type = controlTypes != null && flat < controlTypes.Length ? controlTypes[flat] : -1;
             UdonSharpBehaviour puppet = null;
+            // radial and axis are separate objects; only the chosen one is left enabled
             if (type == ControlRadialPuppet) puppet = radialPuppet;
             else if (type == ControlTwoAxis || type == ControlFourAxis) puppet = axisPuppet;
             if (puppet == null) return;
 
+            // flat index, not display: puppet callbacks resolve sub-params from it
             _activePuppetFlat = flat;
             _SetMenuVisible(false);
 
@@ -565,11 +578,13 @@ namespace UdonExpressionDriver
                     {
                         var px = _PuppetSubParam(flat, 0);
                         var py = _PuppetSubParam(flat, 1);
+                        // the control works 0..1, the params it drives are -1..1
                         if (px >= 0 && py >= 0)
                             axis.PuppetValue = new Vector2((_GetParam(px) + 1f) * 0.5f, (_GetParam(py) + 1f) * 0.5f);
                     }
                     else
                     {
+                        // four directionals are four params, so the control just starts centered
                         axis.PuppetValue = new Vector2(0.5f, 0.5f);
                     }
                 }
@@ -587,12 +602,14 @@ namespace UdonExpressionDriver
             }
         }
 
+        /// <summary>Writes a radial puppet value into the active puppet's sub-parameter (owner only).</summary>
         public override void _OnPuppetRadial(float value)
         {
             if (!_IsOwner()) return;
             _WritePuppetSubParam(0, value);
         }
 
+        /// <summary>Writes two-axis puppet values into the active puppet's sub-parameters (owner only).</summary>
         public override void _OnPuppetTwo(float x, float y)
         {
             if (!_IsOwner()) return;
@@ -600,6 +617,7 @@ namespace UdonExpressionDriver
             _WritePuppetSubParam(1, y);
         }
 
+        /// <summary>Writes four-axis puppet values into the active puppet's sub-parameters (owner only).</summary>
         public override void _OnPuppetFour(float negX, float posX, float negY, float posY)
         {
             if (!_IsOwner()) return;
@@ -609,6 +627,7 @@ namespace UdonExpressionDriver
             _WritePuppetSubParam(3, posY);
         }
 
+        /// <summary>Closes open puppet/gesture panels and brings the menu back (owner only).</summary>
         public override void _OnPuppetClose()
         {
             if (!_IsOwner()) return;
@@ -618,15 +637,12 @@ namespace UdonExpressionDriver
             if (radialPuppet != null) radialPuppet.gameObject.SetActive(false);
             if (axisPuppet != null) axisPuppet.gameObject.SetActive(false);
             if (handGestures != null) handGestures.gameObject.SetActive(false);
+            // the menu was hidden when the puppet opened, so bring it back
             _SetMenuVisible(true);
         }
 
-        /// <summary>
-        /// Hides every piece of menu UI (radial menu, puppets, hand-gesture panel) and resets the
-        /// active-control state. Navigation state (current menu, stack) is reset to the top level so
-        /// the next open starts fresh, matching VRChat's menu behavior. Called when the local player
-        /// loses ownership so a non-owner never sees or drives the prop. Null-safe and idempotent.
-        /// </summary>
+        // Hides every piece of menu UI and resets navigation so the next open starts fresh.
+        // Called when the local player loses ownership so a non-owner never sees or drives the prop.
         private void _CloseAllMenus()
         {
             _activePuppetFlat = -1;
@@ -638,7 +654,6 @@ namespace UdonExpressionDriver
             _ResetMenuNavigation();
         }
 
-        /// <summary>Resets the menu to the top level (no saved submenu history).</summary>
         private void _ResetMenuNavigation()
         {
             _currentMenu = 0;
@@ -646,10 +661,6 @@ namespace UdonExpressionDriver
             _RefreshMenuView();
         }
 
-        /// <summary>
-        /// Opens the world-space hand gesture menu and hides the menu. Seeds the current left/right
-        /// gesture from the synced GestureLeft/GestureRight params when present.
-        /// </summary>
         private void _OpenHandGestureMenu()
         {
             if (!_IsOwner()) return;
@@ -658,10 +669,12 @@ namespace UdonExpressionDriver
             _activeHandGestures = true;
             _SetMenuVisible(false);
 
+            // one panel at a time, all three share the spot in front of the player
             if (radialPuppet != null) radialPuppet.gameObject.SetActive(false);
             if (axisPuppet != null) axisPuppet.gameObject.SetActive(false);
             handGestures.gameObject.SetActive(true);
 
+            // open on the live gesture rather than a blank panel
             if (_gestureLeftIndex >= 0) handGestures.LeftGesture = Mathf.RoundToInt(_GetParam(_gestureLeftIndex));
             if (_gestureRightIndex >= 0) handGestures.RightGesture = Mathf.RoundToInt(_GetParam(_gestureRightIndex));
 
@@ -677,10 +690,7 @@ namespace UdonExpressionDriver
             }
         }
 
-        /// <summary>
-        /// Writes the selected gestures into the GestureLeft/GestureRight params (synced, owner-gated).
-        /// Each hand is only written if the prop's Animator uses that parameter.
-        /// </summary>
+        /// <summary>Writes the selected left/right gestures into the synced GestureLeft/GestureRight params (owner only).</summary>
         public override void _OnHandGesture(int left, int right)
         {
             if (!_IsOwner()) return;
@@ -690,6 +700,7 @@ namespace UdonExpressionDriver
 
         private void _WritePuppetSubParam(int index, float value)
         {
+            // index is positional: the order the puppet emits values fixes the param
             var param = _PuppetSubParam(_activePuppetFlat, index);
             if (param >= 0) _SetParam(param, value);
         }
@@ -728,12 +739,8 @@ namespace UdonExpressionDriver
             return next < menuControlStart.Length ? menuControlStart[next] : 0;
         }
 
-        /// <summary>
-        /// Maps a displayed wedge index to its flat control index. A submenu's Back control is
-        /// always shown on the wedge closest to the top of the menu (display index 0), matching
-        /// VRChat's expressions menu; the remaining controls follow in their authored order.
-        /// Levels without a Back control (top level) map 1:1.
-        /// </summary>
+        // Maps a displayed wedge index to its flat control index. A submenu's Back control is
+        // always shown first (display index 0), matching VRChat's expressions menu.
         private int _DisplayFlat(int controlIndex)
         {
             var start = _CurrentControlStart();
@@ -743,6 +750,7 @@ namespace UdonExpressionDriver
             var displayCount = end - start;
             if (displayCount > MaxMenuControls) displayCount = MaxMenuControls;
 
+            // locate Back so it can be displayed first instead of in its authored position
             var backFlat = -1;
             if (controlTypes != null)
             {
@@ -757,6 +765,7 @@ namespace UdonExpressionDriver
 
             if (controlIndex == 0) return backFlat;
 
+            // everything else shifts up one display slot to close the Back gap
             var seen = 0;
             for (var f = start; f < start + displayCount; f++)
             {
@@ -802,8 +811,10 @@ namespace UdonExpressionDriver
             if (animator == null || index >= _paramHashes.Length) return;
 
             var type = index < paramTypes.Length ? paramTypes[index] : ParamTypeFloat;
+            // one float per param, so int and bool are converted on the way into the Animator
             var hash = _paramHashes[index];
             if (type == ParamTypeInt) animator.SetInteger(hash, (int)value);
+            // bools are stored as 1/0, so anything past half reads as true
             else if (type == ParamTypeBool) animator.SetBool(hash, value > 0.5f);
             else animator.SetFloat(hash, value);
         }

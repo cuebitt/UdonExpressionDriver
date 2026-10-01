@@ -4,10 +4,7 @@ using VRC.Dynamics;
 
 namespace UdonExpressionDriver
 {
-    /// <summary>
-    /// Sits on a GameObject with a VRC Contact Sender or Receiver and forwards
-    /// contact events to a target behaviour via SendCustomEvent.
-    /// </summary>
+    /// <summary>Forwards contact events to a target behaviour via SendCustomEvent; empty event names ignore the event.</summary>
     [UdonBehaviourSyncMode(BehaviourSyncMode.None)]
     public class ContactForwarder : UdonSharpBehaviour
     {
@@ -33,6 +30,7 @@ namespace UdonExpressionDriver
 
         private void _Send(string eventName)
         {
+            // SendCustomEvent takes only a name, so the contact info arg is dropped here
             if (target != null && !string.IsNullOrEmpty(eventName))
                 target.SendCustomEvent(eventName);
         }

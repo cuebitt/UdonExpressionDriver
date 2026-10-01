@@ -3,8 +3,8 @@
 namespace UdonExpressionDriver
 {
     /// <summary>
-    /// Base class shared by UED prop behaviours. It does nothing on its own and ignores
-    /// puppet handler callbacks by default; subclasses override them when needed.
+    /// Base for UED prop behaviours. Ignores puppet callbacks by default; subclasses
+    /// override the ones they care about.
     /// </summary>
     public class UEDBehaviour : UEDPuppetHandler
     {

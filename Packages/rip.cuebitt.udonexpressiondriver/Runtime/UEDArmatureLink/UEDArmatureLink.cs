@@ -6,17 +6,10 @@ using VRC.SDKBase;
 namespace UdonExpressionDriver
 {
     /// <summary>
-    /// World analog of VRCFury's Armature Link: while worn, the prop sticks to the
-    /// wearer's selected humanoid bone. Non-destructive: the prop is never reparented
-    /// into the avatar; the owner writes its transform from the wearer's bone every
-    /// frame and VRC_ObjectSync propagates + interpolates it to everyone else.
-    ///
-    /// Activation uses the prop's VRC_Pickup: grab to wear, Use to toggle, let go to
-    /// release. Ownership transfer or the wearer leaving also releases the prop.
-    ///
-    /// No variables are Udon-synced here; the transform is synced by VRC_ObjectSync,
-    /// so this behavior uses BehaviourSyncMode.None (Manual Udon variables are not
-    /// allowed on a GameObject with VRC_ObjectSync).
+    /// World analog of VRCFury's Armature Link: while worn, the prop sticks to the wearer's
+    /// bone. The owner writes the transform every frame; VRC_ObjectSync syncs it to everyone
+    /// else. Because the transform rides VRC_ObjectSync, no [UdonSynced] fields are allowed
+    /// here, so this is BehaviourSyncMode.None.
     /// </summary>
     [UdonBehaviourSyncMode(BehaviourSyncMode.None)]
     public class UEDArmatureLink : UEDBehaviour
@@ -65,10 +58,9 @@ namespace UdonExpressionDriver
         {
             if (propPickup == null) propPickup = GetComponent<VRCPickup>();
             if (propRigidbody == null) propRigidbody = GetComponent<Rigidbody>();
-            // TODO: only root-level colliders are toggled while worn; switch to
-            // GetComponentsInChildren if child colliders should be disabled too.
             _colliders = GetComponents<Collider>();
 
+            // the attach point math runs every frame in PostLateUpdate, so resolve it here
             _hasAttachPoint = attachPoint != null;
             if (_hasAttachPoint)
             {
@@ -104,6 +96,7 @@ namespace UdonExpressionDriver
 
         public override void OnPlayerLeft(VRCPlayerApi player)
         {
+            // the wearer leaving drops the prop out of the world, so release it
             if (_worn && _wearer != null && player.playerId == _wearer.playerId) _Unwear();
         }
 
@@ -128,11 +121,13 @@ namespace UdonExpressionDriver
             Vector3 targetPosition;
             if (_hasAttachPoint)
             {
+                // the attach point's origin is the contact point, so undo its local offset
                 targetRotation = boneRotation * _attachRotInv;
                 targetPosition = bonePosition - targetRotation * _attachPos;
             }
             else
             {
+                // offsets are applied in the bone's rotated space so they follow the bone
                 targetRotation = boneRotation * Quaternion.Euler(rotationOffset);
                 targetPosition = bonePosition + targetRotation * positionOffset;
             }
@@ -144,9 +139,11 @@ namespace UdonExpressionDriver
         public void _Wear()
         {
             if (_worn) return;
+            // a pickup doesn't guarantee ownership, and only the owner may write the transform
             if (!Networking.IsOwner(gameObject))
             {
                 Networking.SetOwner(Networking.LocalPlayer, gameObject);
+                // SetOwner can fail, so re-check before starting to write
                 if (!Networking.IsOwner(gameObject)) return;
             }
 
@@ -155,10 +152,12 @@ namespace UdonExpressionDriver
 
             for (var i = 0; i < ownedObjects.Length; i++)
             {
+                // a worn controller's synced params are only writable by its wearer
                 if (ownedObjects[i] == null || Networking.IsOwner(ownedObjects[i])) continue;
                 Networking.SetOwner(Networking.LocalPlayer, ownedObjects[i]);
             }
 
+            // PostLateUpdate writes the transform directly, so physics must not fight it
             if (propRigidbody != null) propRigidbody.isKinematic = true;
             if (disableCollidersWhileWorn) _SetCollidersEnabled(false);
 
@@ -174,6 +173,7 @@ namespace UdonExpressionDriver
             _worn = false;
             _wearer = null;
 
+            // ownership stays with the last wearer; _Wear reclaims it on the next grab
             if (propRigidbody != null) propRigidbody.isKinematic = false;
             if (disableCollidersWhileWorn) _SetCollidersEnabled(true);
 
@@ -181,12 +181,14 @@ namespace UdonExpressionDriver
                 wearEventHandler.SendCustomEvent(unwornEventName);
         }
 
+        /// <summary>Toggles the worn state.</summary>
         public void _ToggleWear()
         {
             if (_worn) _Unwear();
             else _Wear();
         }
 
+        /// <summary>True while the prop is worn by the local player.</summary>
         public bool _IsWorn()
         {
             return _worn;

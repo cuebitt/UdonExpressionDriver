@@ -11,8 +11,8 @@ using UnityEditor;
 namespace UdonExpressionDriver
 {
     /// <summary>
-    /// Generates a radial menu similar to VRChat's quick menu.
-    /// Each segment is a wedge-shaped mesh with gradient fill and an outline.
+    /// Radial menu like VRChat's quick menu: each segment is a wedge mesh with a
+    /// gradient fill and an outline, driven by a UEDMenuHost.
     /// </summary>
     [UdonBehaviourSyncMode(BehaviourSyncMode.None)]
     public class RadialMenu : UdonSharpBehaviour
@@ -71,16 +71,16 @@ namespace UdonExpressionDriver
             _SetupLabelsAndIcons();
         }
 
-        /// <summary>
-        /// Cancels the scale of the menu's parent chain so the menu always renders at a fixed world
-        /// size (the radius values are world units), no matter how the parent prop/controller is scaled.
-        /// </summary>
+        // Cancels the parent chain's scale so the menu renders at fixed world size regardless
+        // of how the prop/controller is scaled (radius values are world units).
         private void _ApplyWorldScale()
         {
             var parent = transform.parent;
             if (parent == null) return;
 
+            // lossy, not local, so a scaled grandparent still cancels out
             var parentScale = parent.lossyScale;
+            // a zero or negative axis makes the reciprocal blow up or flip the menu
             if (parentScale.x <= 0f || parentScale.y <= 0f || parentScale.z <= 0f) return;
 
             transform.localScale = new Vector3(
@@ -93,16 +93,19 @@ namespace UdonExpressionDriver
 #if !COMPILER_UDONSHARP && UNITY_EDITOR
         private void OnValidate()
         {
+            // this == null: the component can be destroyed before the deferred call runs
             EditorApplication.delayCall += () => { if (this == null) return; _SetupSegments(); };
         }
 
         private void OnDestroy()
         {
+            // play mode meshes die with the scene; DestroyImmediate there is unsafe
             if (Application.isPlaying) return;
 
             foreach (var segment in segments)
             {
                 if (!segment) continue;
+                // any level can be missing in a hand-authored segment prefab
                 var mh = segment.transform.Find(MeshHolderName);
                 if (!mh) continue;
                 var mf = mh.GetComponent<MeshFilter>();
@@ -116,6 +119,7 @@ namespace UdonExpressionDriver
                 }
             }
 
+            // border quads merge into one mesh, so they need their own teardown
             if (borderMeshHolder != null)
             {
                 var bmf = borderMeshHolder.GetComponent<MeshFilter>();
@@ -128,48 +132,45 @@ namespace UdonExpressionDriver
         }
 #endif
 
+        /// <summary>Forwards a wedge press to the host (wired from each segment button).</summary>
         public void OnButtonPress(int index)
         {
             if (fullController == null) return;
             fullController._OnControlPressed(index);
         }
 
-        /// <summary>
-        /// Pushes the current menu level's labels and icons into the wedges and
-        /// rebuilds the content. Called by the controller on start and on navigation.
-        /// </summary>
+        /// <summary>Pushes the current level's labels/icons into the wedges and rebuilds. Called on start and navigation.</summary>
         public void SetContent(string[] names, Texture2D[] iconArray)
         {
             if (names == null) names = new string[0];
             if (iconArray == null) iconArray = new Texture2D[0];
 
+            // angleStep divides by segmentCount, so never let it reach 0
             var newCount = Mathf.Max(1, Mathf.Min(names.Length, MaxSegmentArraySize));
             if (segmentCount != newCount) segmentCount = newCount;
 
             labels = names;
             icons = iconArray;
 
+            // rebuild in place so navigating into this level shows it immediately
             _ApplyWorldScale();
             _SetupSegments();
             _SetupLabelsAndIcons();
         }
 
+        /// <summary>Sets the menu's visibility.</summary>
         public void _SetVisible(bool visible)
         {
             gameObject.SetActive(visible);
         }
 
+        /// <summary>Toggles the menu's visibility.</summary>
         public void _ToggleVisible()
         {
             gameObject.SetActive(!gameObject.activeSelf);
         }
         
-        /// <summary>
-        /// Configures all wedge segments in the radial menu:
-        /// - Activates or deactivates each segment based on <see cref="segmentCount" />.
-        /// - Positions and rotates each segment correctly around the center.
-        /// - Generates the mesh with gradient and outlines using <see cref="CreateWedgeMesh" />.
-        /// </summary>
+        /// <summary>Rebuilds and positions the wedge segments for the current segment count.</summary>
         public void _SetupSegments()
         {
             if (segments == null || gradientMaterial == null) return;
@@ -181,6 +182,7 @@ namespace UdonExpressionDriver
 
             var borders = CreateBorderMesh(segmentCount, innerRadius, outerRadius);
             var bmf = borderMeshHolder.GetComponent<MeshFilter>();
+            // too few wedges to place a boundary, so drop the stale border mesh
             if (borders == null)
             {
                 if (bmf != null)
@@ -195,6 +197,7 @@ namespace UdonExpressionDriver
             if (bmf != null)
             {
 #if !COMPILER_UDONSHARP && UNITY_EDITOR
+                // keep generated geometry out of the saved scene
                 borders.hideFlags = HideFlags.DontSave;
 #endif
                 var oldBorderMesh = bmf.sharedMesh;
@@ -210,6 +213,7 @@ namespace UdonExpressionDriver
         {
             if (mesh == null) return;
 #if !COMPILER_UDONSHARP && UNITY_EDITOR
+            // Destroy is deferred to end of frame, which never comes outside play mode
             if (!Application.isPlaying)
             {
                 Object.DestroyImmediate(mesh);
@@ -223,6 +227,7 @@ namespace UdonExpressionDriver
         {
             var angleStep = 360f / segmentCount;
             var startAngle = angleStep / 2f;
+            // radialSteps budgets the whole circle, so split it across the wedges
             var stepsPerWedge = Mathf.Max(1, radialSteps / segmentCount);
 
             for (var i = 0; i < segments.Length; i++)
@@ -230,6 +235,7 @@ namespace UdonExpressionDriver
                 var seg = segments[i];
                 if (!seg) continue;
 
+                // park unused slots inactive rather than resizing the fixed array
                 var active = i < segmentCount;
                 seg.SetActive(active);
                 if (!active) continue;
@@ -259,6 +265,7 @@ namespace UdonExpressionDriver
                 }
 
                 var mc = meshHolder.GetComponent<MeshCollider>();
+                // collider shares the render mesh; a second copy doubles the geometry
                 if (mc != null && mf != null && colliderMesh != null) mc.sharedMesh = colliderMesh;
 
                 // Destroy last so no filter/collider still holds the outgoing mesh.
@@ -293,9 +300,12 @@ namespace UdonExpressionDriver
                     cosA * midRadius - DefaultLabelZOffset * midRadius
                 );
 
+                // scale text with the ring so it stays proportional at any radius
                 label.localScale = Vector3.one * DefaultLabelScale * midRadius;
+                // labels are authored lying flat; stand them up to face the viewer
                 label.localRotation = Quaternion.Euler(90f, 0f, 0f);
 
+                // bounds-check per slot: callers may pass arrays shorter than segments
                 var hasText = hasLabels && i < labels.Length && !string.IsNullOrEmpty(labels[i]);
                 var hasIcon = hasIcons && i < icons.Length && icons[i] != null;
 
@@ -322,6 +332,7 @@ namespace UdonExpressionDriver
                     var iconMr = icon.GetComponent<MeshRenderer>();
                     if (hasIcon && iconMr != null)
                     {
+                        // read first so only the texture is overwritten, not other renderer props
                         var block = new MaterialPropertyBlock();
                         iconMr.GetPropertyBlock(block);
                         block.SetTexture(_mainTexShaderProperty, icons[i]);
@@ -342,20 +353,12 @@ namespace UdonExpressionDriver
             }
         }
 
-        /// <summary>
-        /// Creates a wedge mesh with the main gradient surface and merged radial outline quads on top.
-        /// </summary>
-        /// <param name="angleDeg">Angular span of the wedge in degrees.</param>
-        /// <param name="innerR">Inner radius of the wedge.</param>
-        /// <param name="outerR">Outer radius of the wedge.</param>
-        /// <param name="steps">Number of subdivisions along the arc.</param>
-        /// <returns>A Mesh containing the wedge and its radial outline.</returns>
         private static Mesh CreateWedgeMesh(float angleDeg, float innerR, float outerR, int steps)
         {
-            // --- Base wedge ---
             var wedgeMesh = new Mesh();
             var angleRad = Mathf.Deg2Rad * angleDeg;
 
+            // two rings of steps+1 verts: inner arc first, then outer arc
             var verts = new Vector3[(steps + 1) * 2];
             var uvs = new Vector2[verts.Length];
             var tris = new int[steps * 6];
@@ -369,11 +372,11 @@ namespace UdonExpressionDriver
                 verts[i] = dir * innerR;
                 verts[i + steps + 1] = dir * outerR;
 
+                // u runs along the arc so the gradient sweeps across the wedge
                 uvs[i] = new Vector2(t, 0f);
                 uvs[i + steps + 1] = new Vector2(t, 1f);
             }
 
-            // Builds two vertex rings (inner + outer arc) and stitches two triangles per step.
             for (int i = 0, t = 0; i < steps; i++)
             {
                 var iInner1 = i + 1;
@@ -392,6 +395,7 @@ namespace UdonExpressionDriver
             wedgeMesh.vertices = verts;
             wedgeMesh.uv = uvs;
             wedgeMesh.triangles = tris;
+            // hand-built verts carry no normals, and the collider needs real bounds
             wedgeMesh.RecalculateNormals();
             wedgeMesh.RecalculateBounds();
 
@@ -407,6 +411,7 @@ namespace UdonExpressionDriver
             var angleStep = 360f / segCount;
             var startAngle = angleStep / 2f;
 
+            // one quad per wedge boundary: 4 verts, 2 triangles
             var verts = new Vector3[segCount * 4];
             var uvs = new Vector2[verts.Length];
             var tris = new int[segCount * 6];
@@ -415,6 +420,7 @@ namespace UdonExpressionDriver
             {
                 var boundaryAngleRad = Mathf.Deg2Rad * (angleStep * i - startAngle);
                 var dir = new Vector3(Mathf.Sin(boundaryAngleRad), 0f, Mathf.Cos(boundaryAngleRad));
+                // the quad gets its width from a tangent offset, not a radial one
                 var tangent = new Vector3(Mathf.Cos(boundaryAngleRad), 0f, -Mathf.Sin(boundaryAngleRad));
                 var thicknessOffset = tangent * borderThickness;
 
@@ -424,11 +430,13 @@ namespace UdonExpressionDriver
                 verts[vi + 2] = dir * innerR - thicknessOffset;
                 verts[vi + 3] = dir * outerR - thicknessOffset;
 
+                // untextured quad; uvs are placeholders Unity still insists on
                 uvs[vi] = new Vector2(0f, 0f);
                 uvs[vi + 1] = new Vector2(0f, 0f);
                 uvs[vi + 2] = new Vector2(0f, 0f);
                 uvs[vi + 3] = new Vector2(0f, 0f);
 
+                // wind to match the wedge fill so both normals face the viewer
                 var ti = i * 6;
                 tris[ti] = vi;
                 tris[ti + 1] = vi + 2;

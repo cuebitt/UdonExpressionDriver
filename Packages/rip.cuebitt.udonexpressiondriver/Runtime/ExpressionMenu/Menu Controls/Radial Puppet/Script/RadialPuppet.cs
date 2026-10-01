@@ -41,6 +41,7 @@ namespace UdonExpressionDriver
             {
                 this.value = value;
 
+                // lowerSlider is what the user drags; radialSlider just mirrors it
                 if (valueLabel != null) valueLabel.text = $"{this.value * 100:F0}%";
                 if (radialSlider != null) radialSlider.value = this.value;
                 if (lowerSlider != null) lowerSlider.value = this.value;
@@ -64,6 +65,7 @@ namespace UdonExpressionDriver
             Value = value;
             Label = label;
 
+            // deferred and without notify: assigning .value would re-enter OnSliderValueChanged
             if (lowerSlider != null)
                 EditorApplication.delayCall += () => { if (this == null) return; lowerSlider.SetValueWithoutNotify(value); };
         }
@@ -71,6 +73,7 @@ namespace UdonExpressionDriver
 
         public void OnSliderValueChanged()
         {
+            // round-trip through the property so the readout and both sliders agree
             Value = lowerSlider.value;
 
             if (handler != null) handler._OnPuppetRadial(Value);

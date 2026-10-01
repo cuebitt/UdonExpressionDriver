@@ -8,9 +8,8 @@ namespace UdonExpressionDriver.Editor
 {
     /// <summary>
     /// Imports a VRCExpressionsMenu + VRCExpressionParameters into a UEDFullController's
-    /// serialized arrays (the editor-side convenience; runtime data is embedded on the
-    /// component). Puppet controls (two/four-axis, radial) import their sub-parameters
-    /// into the flat controlSubParams array.
+    /// serialized arrays; runtime data is embedded on the component. Puppet controls
+    /// import their sub-parameters into the flat controlSubParams array.
     /// </summary>
     public static class UEDExpressionImporter
     {
@@ -33,12 +32,12 @@ namespace UdonExpressionDriver.Editor
             public int[] subParamIndices;
         }
 
+        /// <summary>Flattens the menu + parameters into the controller's serialized data arrays (editor convenience; puppet controls are skipped as driven params instead).</summary>
         public static void Import(UEDFullController controller, VRCExpressionsMenu menu, VRCExpressionParameters parameters)
         {
             if (controller == null) { Debug.LogError("[UED] No controller to import into."); return; }
             if (menu == null) { Debug.LogError("[UED] Specify an Expressions Menu."); return; }
 
-            // Gather parameters (asset first, then menu-embedded + referenced).
             var paramNames = new List<string>();
             var paramTypes = new List<int>();
             var paramDefaults = new List<float>();
@@ -47,6 +46,7 @@ namespace UdonExpressionDriver.Editor
 
             void AddParam(string name, int type, float defaultValue, bool synced)
             {
+                // first definition wins, later duplicates are skipped by the caller
                 paramByName[name] = paramNames.Count;
                 paramNames.Add(name);
                 paramTypes.Add(type);
@@ -63,10 +63,10 @@ namespace UdonExpressionDriver.Editor
                 }
             }
 
+            // menu trees can share submenus, so a seen-set guards against re-walking and self-references
             var seenMenus = new HashSet<VRCExpressionsMenu>();
             CollectReferencedParams(menu, seenMenus, paramByName, AddParam);
 
-            // Flatten menus into a flat control list per menu level.
             var menuList = new List<List<ControlDef>>();
             var menuIndexMap = new Dictionary<VRCExpressionsMenu, int>();
             var truncatedControls = 0;
@@ -88,6 +88,7 @@ namespace UdonExpressionDriver.Editor
             var controlCount = 0;
             foreach (var controls in menuList)
             {
+                // parallel arrays: every menu records where its controls begin
                 menuControlStart.Add(controlCount);
                 foreach (var c in controls)
                 {
@@ -100,6 +101,7 @@ namespace UdonExpressionDriver.Editor
 
                     if (c.subParamIndices != null && c.subParamIndices.Length > 0)
                     {
+                        // -1 start marks a control with no sub-params
                         controlSubParamStart.Add(controlSubParams.Count);
                         foreach (var subParam in c.subParamIndices)
                             controlSubParams.Add(subParam);
@@ -112,9 +114,9 @@ namespace UdonExpressionDriver.Editor
                     controlCount++;
                 }
             }
+            // trailing sentinel: last entry is the total control count
             menuControlStart.Add(controlCount);
 
-            // Write the flattened data into the controller's serialized fields.
             var serialized = new SerializedObject(controller);
             SetArray(serialized, "paramNames", paramNames);
             SetArray(serialized, "paramTypes", paramTypes);
@@ -152,6 +154,7 @@ namespace UdonExpressionDriver.Editor
             foreach (var c in menu.controls)
             {
                 if (c == null) continue;
+                // params a control only names (no valueType) fall back to float, which is what a button wants
                 if (c.parameter != null && !string.IsNullOrEmpty(c.parameter.name) && !paramByName.ContainsKey(c.parameter.name))
                     addParam(c.parameter.name, 0, 0f, true);
 
@@ -175,6 +178,7 @@ namespace UdonExpressionDriver.Editor
         {
             if (menu == null || !seen.Add(menu)) return;
 
+            // register before recursing so a submenu can be referenced by index even if it's a cycle
             var index = menuList.Count;
             menuIndexMap[menu] = index;
             var controls = new List<ControlDef>();
@@ -233,6 +237,7 @@ namespace UdonExpressionDriver.Editor
                             control.subMenuIndex = subIndex;
                     }
                 }
+                // a two-axis/four-axis/radial control owns its own sub-params instead of one param
                 else if (type == ControlTwoAxis || type == ControlFourAxis || type == ControlRadialPuppet)
                 {
                     if (c.subParameters != null)
@@ -257,11 +262,7 @@ namespace UdonExpressionDriver.Editor
             }
         }
 
-        /// <summary>
-        /// Counts the controls <see cref="Import"/> will flatten for a menu, Back wedges and
-        /// per-menu caps included. UEDVrcFuryBridge.NeedsImport compares against this so the
-        /// count check stays in sync with what the importer actually writes.
-        /// </summary>
+        /// <summary>Mirrors the control flattening in <see cref="Import"/> (Back wedges + per-menu caps), so NeedsImport's count check stays in sync.</summary>
         internal static int CountFlattenedControls(VRCExpressionsMenu menu)
         {
             return CountFlattenedControls(menu, new HashSet<VRCExpressionsMenu>());

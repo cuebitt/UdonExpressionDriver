@@ -4,10 +4,7 @@ using VRC.Dynamics;
 
 namespace UdonExpressionDriver
 {
-    /// <summary>
-    /// Sits on a GameObject with a VRCPhysBone and forwards PhysBone events to a
-    /// target behaviour via SendCustomEvent. Leave an event name empty to ignore it.
-    /// </summary>
+    /// <summary>Forwards PhysBone events to a target behaviour via SendCustomEvent; empty event names ignore the event.</summary>
     [UdonBehaviourSyncMode(BehaviourSyncMode.None)]
     public class PhysboneForwarder : UdonSharpBehaviour
     {
@@ -47,6 +44,7 @@ namespace UdonExpressionDriver
 
         private void _Send(string eventName)
         {
+            // SendCustomEvent takes only a name, so the PhysBone info args are dropped here
             if (target != null && !string.IsNullOrEmpty(eventName))
                 target.SendCustomEvent(eventName);
         }

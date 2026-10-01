@@ -8,20 +8,14 @@ namespace UdonExpressionDriver.Editor
 {
     /// <summary>
     /// Reads VRCFury component config off a prop prefab (non-destructively) and fills the
-    /// UED equivalents, so a VRCFury-configured prop works in a world with one click.
-    /// VRCFury's runtime classes are internal, so this walks their serialized data via
-    /// SerializedObject + type-name matching. There is no VRCFury assembly reference,
-    /// so this holds across VRCFury versions.
+    /// UED equivalents. VRCFury's runtime classes are internal, so this walks their
+    /// serialized data via SerializedObject + type-name matching; no assembly reference needed.
     /// </summary>
     public static class UEDVrcFuryBridge
     {
         private const string VrcFuryComponentTypeName = "VF.Model.VRCFury";
 
-        /// <summary>
-        /// Applies a VRCFury ArmatureLink feature's data (bone + attach point) to the UEDArmatureLink.
-        /// Only writes when something actually differs (idempotent), so it is safe to call repeatedly.
-        /// It is triggered by the inspector's "Re-import from VRCFury" button.
-        /// </summary>
+        /// <summary>Idempotent: only writes when something actually differs, so it can run on every inspector repaint.</summary>
         public static bool AutoImportArmatureLink(UEDArmatureLink link)
         {
             if (!TryGetArmatureLinkData(link, out var bone, out var attach, out var useBone)) return false;
@@ -29,6 +23,7 @@ namespace UdonExpressionDriver.Editor
             var serialized = new SerializedObject(link);
             var changed = false;
 
+            // write only on real diffs: this runs from OnInspectorGUI every repaint
             var targetBone = serialized.FindProperty("targetBone");
             if (useBone && targetBone != null && targetBone.enumValueIndex != (int)bone)
             {
@@ -67,12 +62,14 @@ namespace UdonExpressionDriver.Editor
 
             foreach (var vrcFury in FindVrcFuryComponents(link.gameObject))
             {
+                // no compile-time reference, so every field is looked up by name
                 var serialized = new SerializedObject(vrcFury);
                 var content = serialized.FindProperty("content");
                 var linkTo = content?.FindPropertyRelative("linkTo");
                 if (content == null || linkTo == null) continue;
                 if (linkTo.arraySize == 0) continue;
 
+                // linkTo is a list, UED's targetBone/attachPoint pair models only the first entry
                 var first = linkTo.GetArrayElementAtIndex(0);
                 var useBoneProperty = first.FindPropertyRelative("useBone");
                 var useObjProperty = first.FindPropertyRelative("useObj");
@@ -86,6 +83,7 @@ namespace UdonExpressionDriver.Editor
                 else if (propBoneProperty?.objectReferenceValue is GameObject propBoneGo)
                     attach = propBoneGo.transform;
 
+                // VRCFury stores the bone as an enum index, HumanBodyBones shares the ordering
                 if (useBoneProperty != null && useBoneProperty.boolValue && boneProperty != null)
                 {
                     bone = (HumanBodyBones)boneProperty.enumValueIndex;
@@ -98,12 +96,7 @@ namespace UdonExpressionDriver.Editor
             return false;
         }
 
-        /// <summary>
-        /// If a VRCFury FullController feature exists on the prop, imports its menu+params into the
-        /// UEDFullController and returns true (so the inspector can show a "Re-import" button).
-        /// Only imports when the controller's data doesn't already match, so it is safe to call on
-        /// every inspector repaint.
-        /// </summary>
+        /// <summary>Imports the VRCFury FullController's menu+params only when the current data differs (idempotent).</summary>
         public static bool AutoImportMenu(UEDFullController controller)
         {
             return ImportFromVrcFury(controller, force: false);
@@ -127,6 +120,7 @@ namespace UdonExpressionDriver.Editor
                 var prms = content.FindPropertyRelative("prms");
                 if (menus == null || prms == null) continue;
 
+                // FullController's arrays hold VRCFury guid wrappers, not the assets themselves
                 var menu = ResolveObjRef(menus, "menu") as VRCExpressionsMenu;
                 var parameters = ResolveObjRef(prms, "parameters") as VRCExpressionParameters;
                 var controllers = content.FindPropertyRelative("controllers");
@@ -149,12 +143,7 @@ namespace UdonExpressionDriver.Editor
             return false;
         }
 
-        /// <summary>
-        /// Applies the Expressions section's stored assets to the controller: imports the data
-        /// arrays from the stored Menu/Parameters and wires the stored Controller asset into the
-        /// prop's Animator. Idempotent (only imports when the data differs), so it is safe to call
-        /// from the build/play auto-setup.
-        /// </summary>
+        /// <summary>Applies the Expressions section's stored assets to the controller: imports the data arrays and wires the stored Controller into the prop's Animator. Idempotent.</summary>
         public static void ApplyExpressions(UEDFullController controller)
         {
             var serialized = new SerializedObject(controller);
@@ -168,11 +157,9 @@ namespace UdonExpressionDriver.Editor
         }
 
         /// <summary>
-        /// Auto-registers GestureLeft/GestureRight as synced int params on the controller (appended
-        /// to paramNames/paramTypes/paramDefaults/paramSynced) when Enable Hand Gesture Emulation is on,
-        /// the prop's Animator uses the param, and it isn't already present. Idempotent. Records exactly
-        /// which names it appended in the hidden autoAddedHandGestureParams field (comma-separated) so the
-        /// auto-linker can strip only those entries again after play/build.
+        /// Appends GestureLeft/GestureRight as synced int params when Enable Hand Gesture Emulation is on,
+        /// the Animator binds them, and they aren't already present. Records what it appended in the hidden
+        /// autoAddedHandGestureParams field so the auto-linker can strip only those entries after play/build.
         /// </summary>
         public static void EnsureHandGestureParams(UEDFullController controller)
         {
@@ -189,7 +176,9 @@ namespace UdonExpressionDriver.Editor
             var syncedProp = serialized.FindProperty("paramSynced");
             if (namesProp == null) return;
 
+            // record only what we appended, so the user's own gesture params are never stripped
             var addedNames = new List<string>();
+            // only params the Animator actually binds, so we don't sync unused ints
             foreach (var name in new[] { "GestureLeft", "GestureRight" })
             {
                 if (!AnimatorUsesParameter(animator, name)) continue;
@@ -227,6 +216,7 @@ namespace UdonExpressionDriver.Editor
 
         private static bool AnimatorUsesParameter(Animator animator, string name)
         {
+            // an override controller won't match here, so its params stay unregistered
             if (animator.runtimeAnimatorController is UnityEditor.Animations.AnimatorController ac)
             {
                 foreach (var p in ac.parameters)
@@ -237,6 +227,7 @@ namespace UdonExpressionDriver.Editor
             return false;
         }
 
+        /// <summary>Loads the asset whose GUID is stored in the named serialized field.</summary>
         public static T GetStoredAsset<T>(SerializedObject serialized, string guidField) where T : Object
         {
             var guid = serialized.FindProperty(guidField)?.stringValue;
@@ -245,6 +236,7 @@ namespace UdonExpressionDriver.Editor
             return string.IsNullOrEmpty(path) ? null : AssetDatabase.LoadAssetAtPath<T>(path);
         }
 
+        /// <summary>Stores the asset's GUID in the named serialized field.</summary>
         public static void SetStoredAsset(SerializedObject serialized, string guidField, Object asset)
         {
             var prop = serialized.FindProperty(guidField);
@@ -252,15 +244,8 @@ namespace UdonExpressionDriver.Editor
             prop.stringValue = asset == null ? "" : AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(asset));
         }
 
-        /// <summary>
-        /// Points the controller's animator field at the prop's Animator and wires in the
-        /// RuntimeAnimatorController referenced by the VRCFury FullController. Also records the
-        /// imported controller asset for the inspector. Idempotent: only writes when something is
-        /// missing or differs.
-        /// This runs from the inspector's repaint, so it never adds a missing Animator here; a prop
-        /// without one gets its Animator added by UEDBuildAutoLinker.EnsurePropComponents (which runs
-        /// at play/build, outside the GUI pass).
-        /// </summary>
+        // Never adds a missing Animator here; EnsurePropComponents (play/build, outside the
+        // GUI pass) is what adds one to a prop that lacks it.
         private static void AutoImportAnimator(UEDFullController controller, RuntimeAnimatorController animatorController)
         {
             var serialized = new SerializedObject(controller);
@@ -273,6 +258,7 @@ namespace UdonExpressionDriver.Editor
                 changed = true;
             }
 
+            // the field can be unset, fall back to searching the prop hierarchy
             var animator = serialized.FindProperty("animator")?.objectReferenceValue as Animator;
             if (animator == null)
                 animator = controller.transform.root.GetComponentInChildren<Animator>(true);
@@ -308,9 +294,9 @@ namespace UdonExpressionDriver.Editor
         private static bool NeedsImport(UEDFullController controller, VRCExpressionsMenu menu, VRCExpressionParameters parameters)
         {
             var serialized = new SerializedObject(controller);
-            // Ignore any auto-added GestureLeft/GestureRight params so the import stays idempotent and
-            // never re-imports (which would drop them) just because hand gesture emulation appended them.
             var paramCount = serialized.FindProperty("paramNames")?.arraySize ?? 0;
+            // Ignore auto-added GestureLeft/GestureRight params, else this count check fails on
+            // every repaint and re-imports (dropping them) after gesture emulation appended them.
             var marker = serialized.FindProperty("autoAddedHandGestureParams")?.stringValue;
             if (!string.IsNullOrEmpty(marker)) paramCount -= marker.Split(',').Length;
             if (paramCount < 0) paramCount = 0;
@@ -321,9 +307,8 @@ namespace UdonExpressionDriver.Editor
                 : 0;
 
             var expectedParams = CountParams(menu, parameters);
-            // Mirrors the importer exactly (Back wedges + per-menu caps); a plain count of the
-            // menu's controls would forever differ from the imported data and re-import on
-            // every repaint.
+            // Mirrors the importer exactly (Back wedges + per-menu caps); a plain control count
+            // would forever differ from the imported data and re-import on every repaint.
             var expectedControls = UEDExpressionImporter.CountFlattenedControls(menu);
 
             return paramCount != expectedParams || controlCount != expectedControls;
@@ -375,6 +360,7 @@ namespace UdonExpressionDriver.Editor
             var wrapper = element.FindPropertyRelative(wrapperField);
             if (wrapper == null) return null;
 
+            // prefer the resolved reference, fall back to the raw guid below
             var objRef = wrapper.FindPropertyRelative("objRef");
             if (objRef?.objectReferenceValue != null)
                 return objRef.objectReferenceValue;
@@ -394,6 +380,7 @@ namespace UdonExpressionDriver.Editor
             foreach (var behaviour in go.GetComponentsInChildren<MonoBehaviour>(true))
             {
                 if (behaviour == null) continue;
+                // VRCFury's classes are internal, so match on name rather than reference the type
                 if (behaviour.GetType().FullName == VrcFuryComponentTypeName)
                     result.Add(behaviour);
             }

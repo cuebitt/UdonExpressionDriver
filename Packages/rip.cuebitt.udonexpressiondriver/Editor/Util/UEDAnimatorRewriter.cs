@@ -8,29 +8,19 @@ namespace UdonExpressionDriver.Editor
 {
     /// <summary>
     /// Rewrites an AnimatorController's animation bindings so they resolve against a prop in a
-    /// world. Avatar-prop clips are authored with paths relative to the avatar root (e.g.
-    /// "Glass Bottle/Bottle_Stuff/..."), but UED puts the Animator on the prop root itself, so
-    /// those paths point at a nonexistent "Glass Bottle" child. This strips the leading prop-root
-    /// segment (or any leading segment that doesn't resolve in the prop hierarchy) from every
-    /// binding, copying the controller (via AssetDatabase.CopyAsset) and rewriting its clips into a
-    /// generated asset under Assets/UEDGenerated so the authored assets are never modified. Applied
-    /// (idempotently) whenever the prop's inspector repaints, and again at play-mode entry and
-    /// release build, so the edit-mode Animation window, runtime, and builds all use prop-relative
-    /// bindings.
+    /// world: avatar-prop clips are authored relative to the avatar root, but UED puts the
+    /// Animator on the prop root itself, so the leading prop-root segment is stripped. The
+    /// controller is copied via AssetDatabase.CopyAsset into Assets/UEDGenerated; authored
+    /// assets are never modified.
     /// </summary>
     public static class UEDAnimatorRewriter
     {
         private const string GeneratedFolder = "Assets/UEDGenerated";
 
-        /// <summary>
-        /// Applies a rewritten, prop-relative copy of the controller stored on the prop to its
-        /// Animator, creating a generated asset under Assets/UEDGenerated (so it survives scene
-        /// baking and is visible in the edit-mode Animation window). Non-destructive: the source
-        /// controller and clips are never modified. Idempotent: an up-to-date generated controller
-        /// is reused (no regeneration), and nothing is generated when no binding needs rewriting.
-        /// </summary>
+        /// <summary>Applies a prop-relative copy of the stored controller to the prop's Animator. Non-destructive and idempotent.</summary>
         public static bool ApplyForProp(UEDFullController controller)
         {
+            // play mode can't write assets, the ExitingEditMode pass already applied the rewrite
             if (EditorApplication.isPlaying) return false;
 
             var serialized = new SerializedObject(controller);
@@ -39,7 +29,6 @@ namespace UdonExpressionDriver.Editor
             var sourceGuidProperty = serialized.FindProperty("generatedSourceGuid");
             var animator = FindAnimator(serialized, controller);
 
-            // No source controller: drop any stale generated controller left behind.
             if (original == null)
             {
                 if (guidProperty != null && !string.IsNullOrEmpty(guidProperty.stringValue))
@@ -63,7 +52,6 @@ namespace UdonExpressionDriver.Editor
                 ? null
                 : AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>(AssetDatabase.GUIDToAssetPath(existingGuid));
 
-            // Already generated for this exact source -> just make sure the Animator uses it.
             if (existingAsset != null && existingSource == sourceGuid)
             {
                 if (animator.runtimeAnimatorController != existingAsset)
@@ -71,14 +59,11 @@ namespace UdonExpressionDriver.Editor
                 return true;
             }
 
-            // Stale or missing generated controller -> remove it before regenerating.
             if (existingAsset != null)
                 DeleteGeneratedAsset(existingGuid);
 
             if (!NeedsRewrite(original, propRoot))
             {
-                // No prop-relative paths to fix, so point the Animator at the source and clear
-                // any GUID bookkeeping left over from a previous generation.
                 if (animator.runtimeAnimatorController != original)
                     animator.runtimeAnimatorController = original;
                 if (guidProperty != null) guidProperty.stringValue = "";
@@ -87,6 +72,7 @@ namespace UdonExpressionDriver.Editor
                 return false;
             }
 
+            // CopyAsset can only duplicate a real AnimatorController, not an override or Playable
             if (!(original is AnimatorController source))
             {
                 Debug.LogWarning($"[UED] Cannot rewrite animation paths for '{controller.name}': unsupported controller type '{original.GetType().Name}'.", controller);
@@ -96,6 +82,7 @@ namespace UdonExpressionDriver.Editor
             var asset = GenerateRewrittenAsset(source, propRoot, controller);
             if (asset == null) return false;
 
+            // record the pair so the next repaint reuses this copy instead of regenerating
             if (guidProperty != null) guidProperty.stringValue = AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(asset));
             if (sourceGuidProperty != null) sourceGuidProperty.stringValue = sourceGuid;
             serialized.ApplyModifiedProperties();
@@ -113,7 +100,6 @@ namespace UdonExpressionDriver.Editor
             return animator;
         }
 
-        /// <summary>True if any binding in any clip of the controller needs a path rewrite for this prop.</summary>
         private static bool NeedsRewrite(RuntimeAnimatorController controller, GameObject propRoot)
         {
             if (controller == null || propRoot == null) return false;
@@ -140,9 +126,11 @@ namespace UdonExpressionDriver.Editor
                 return null;
             }
 
+            // CopyAsset won't write into a folder that doesn't exist yet
             if (!AssetDatabase.IsValidFolder(GeneratedFolder))
                 AssetDatabase.CreateFolder("Assets", "UEDGenerated");
 
+            // instance id in the name, so two props sharing one source don't overwrite each other
             var fileName = SanitizeFilename($"{source.name}_{controller.gameObject.GetInstanceID()}.controller");
             var path = GeneratedFolder + "/" + fileName;
             if (AssetDatabase.LoadAssetAtPath<Object>(path) != null)
@@ -174,6 +162,7 @@ namespace UdonExpressionDriver.Editor
             foreach (var clip in seen)
             {
                 if (AssetDatabase.Contains(clip)) continue;
+                // sub-assets of one controller file need distinct names or they collide
                 var name = clip.name;
                 var suffix = 1;
                 while (!usedNames.Add(name))
@@ -186,7 +175,6 @@ namespace UdonExpressionDriver.Editor
             return copy;
         }
 
-        // Walks the state machine rewriting motions and recording every clip that ends up used.
         private static void RewriteAndCollect(AnimatorStateMachine stateMachine, GameObject propRoot, Dictionary<AnimationClip, AnimationClip> cache, HashSet<AnimationClip> seen)
         {
             if (stateMachine == null) return;
@@ -199,7 +187,6 @@ namespace UdonExpressionDriver.Editor
                 RewriteAndCollect(childMachine.stateMachine, propRoot, cache, seen);
         }
 
-        // Rewrites a clip (or every clip under a blend tree) and notes it as used.
         private static Motion RewriteMotionAndCollect(Motion motion, GameObject propRoot, Dictionary<AnimationClip, AnimationClip> cache, HashSet<AnimationClip> seen)
         {
             if (motion is AnimationClip clip)
@@ -211,6 +198,7 @@ namespace UdonExpressionDriver.Editor
 
             if (motion is BlendTree tree)
             {
+                // children is a struct array, edits only stick once reassigned back
                 var children = tree.children;
                 var changed = false;
                 for (var i = 0; i < children.Length; i++)
@@ -232,6 +220,7 @@ namespace UdonExpressionDriver.Editor
             if (cache.TryGetValue(clip, out var existing)) return existing;
             if (!ClipNeedsRewrite(clip, propRoot))
             {
+                // unchanged clip stays shared with the source asset, no clone needed
                 cache[clip] = clip;
                 return clip;
             }
@@ -279,6 +268,7 @@ namespace UdonExpressionDriver.Editor
             newBinding = binding;
             drop = false;
 
+            // bound to the prop root exactly, there's no root-active binding to drop
             var newPath = RewriteBindingPath(binding.path, propRoot);
             if (newPath == binding.path) return false;
 
@@ -304,11 +294,10 @@ namespace UdonExpressionDriver.Editor
         }
 
         /// <summary>
-        /// Computes a prop-relative binding path. Avatar-prop clips prefix every prop-internal path
-        /// with the prop root's name; drop that leading segment. If the current root is named
-        /// differently (the prop was renamed), fall back to stripping whatever leading segment
-        /// actually resolves inside the prop hierarchy. Paths that still don't resolve (avatar
-        /// bones etc.) are left untouched.
+        /// Computes a prop-relative binding path: avatar-prop clips prefix every prop-internal
+        /// path with the prop root's name, so that leading segment is dropped. If the prop was
+        /// renamed, fall back to stripping whichever leading segment resolves inside the prop
+        /// hierarchy. Paths that still don't resolve (avatar bones etc.) are left untouched.
         /// </summary>
         private static string RewriteBindingPath(string path, GameObject propRoot)
         {
@@ -317,6 +306,7 @@ namespace UdonExpressionDriver.Editor
             var rootName = propRoot.name;
             if (!string.IsNullOrEmpty(rootName))
             {
+                // avatar clips prefix the prop root's name onto every path
                 if (path == rootName) return "";
                 if (path.StartsWith(rootName + "/")) return path.Substring(rootName.Length + 1);
             }
@@ -325,6 +315,7 @@ namespace UdonExpressionDriver.Editor
             var segments = path.Split('/');
             if (segments.Length > 1)
             {
+                // renamed prop, strip whichever leading segment actually resolves
                 var stripped = string.Join("/", segments, 1, segments.Length - 1);
                 if (propRoot.transform.Find(stripped) != null) return stripped;
             }
@@ -347,6 +338,7 @@ namespace UdonExpressionDriver.Editor
             if (string.IsNullOrEmpty(guid)) return;
             var path = AssetDatabase.GUIDToAssetPath(guid);
             if (string.IsNullOrEmpty(path)) return;
+            // guid can outlive its asset (manual delete, project reset)
             if (AssetDatabase.LoadAssetAtPath<Object>(path) != null)
                 AssetDatabase.DeleteAsset(path);
         }

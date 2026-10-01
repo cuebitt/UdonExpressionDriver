@@ -5,6 +5,7 @@ using Mono.Cecil;
 
 namespace UdonExpressionDriver.Bootstrapper
 {
+    /// <summary>Strips an assembly down to the types and members reachable from a whitelist.</summary>
     public static class AssemblyStripper
     {
         /// <summary>
@@ -19,10 +20,12 @@ namespace UdonExpressionDriver.Bootstrapper
         /// <param name="outputPath">Output assembly path</param>
         public static void StripExcept(string inputPath, IEnumerable<string> whitelist, string outputPath)
         {
+            // in-memory read leaves the downloaded dll on disk untouched
             var readerParams = new ReaderParameters { ReadSymbols = false, InMemory = true };
             var asm = AssemblyDefinition.ReadAssembly(inputPath, readerParams);
             var module = asm.MainModule;
 
+            // seed from the whitelist, walk what's reachable, drop the rest
             var graph = new KeepGraph(module);
             graph.Seed(whitelist);
             graph.Walk();
@@ -33,10 +36,6 @@ namespace UdonExpressionDriver.Bootstrapper
             asm.Write(outputPath, writerParams);
         }
 
-        /// <summary>
-        /// Computes the keep set by walking the module's reference graph from the whitelist,
-        /// then strips everything that isn't kept.
-        /// </summary>
         private class KeepGraph
         {
             private readonly ModuleDefinition _module;
@@ -74,6 +73,7 @@ namespace UdonExpressionDriver.Bootstrapper
                         continue;
                     }
 
+                    // last resort: the entry was a bare type name, not a full name
                     var alt = AllTypes().FirstOrDefault(x => x.Name == w || x.FullName == w);
                     if (alt != null) KeepType(alt);
                 }
@@ -83,6 +83,7 @@ namespace UdonExpressionDriver.Bootstrapper
             // references, transitively, until the whole reachable graph is recorded.
             public void Walk()
             {
+                // HashSet adds dedupe, so this terminates even with cyclic references
                 while (_workQueue.Count > 0)
                 {
                     var item = _workQueue.Dequeue();
@@ -103,11 +104,13 @@ namespace UdonExpressionDriver.Bootstrapper
             // Removes types not in the keep set, and prunes the kept types' members.
             public void Prune()
             {
+                // snapshot first, prune mutates the module's own type collection
                 var allTypes = AllTypes().ToList();
                 foreach (var t in allTypes)
                 {
                     if (!_keepTypes.Contains(t.FullName))
                     {
+                        // nested types hang off their parent, not the module list
                         if (t.IsNested)
                             t.DeclaringType.NestedTypes.Remove(t);
                         else
@@ -115,6 +118,7 @@ namespace UdonExpressionDriver.Bootstrapper
                         continue;
                     }
 
+                    // unreachable members go, except static ctors with side effects
                     t.Methods.RemoveWhere(m => !_keepMembers.Contains(m.FullName) && !IsSpecialKeepMethod(m));
                     t.Fields.RemoveWhere(f => !_keepMembers.Contains(f.FullName));
                     t.Properties.RemoveWhere(p => !_keepMembers.Contains(p.FullName));
@@ -124,12 +128,14 @@ namespace UdonExpressionDriver.Bootstrapper
 
             private void KeepType(TypeDefinition td)
             {
+                // Add returning false means already seen, that's the cycle guard
                 if (_keepTypes.Add(td.FullName))
                     _workQueue.Enqueue(td);
             }
 
             private void WalkType(TypeDefinition td)
             {
+                // base type and interfaces must survive or the type won't load
                 if (td.BaseType != null) AddTypeReference(td.BaseType);
                 foreach (var iface in td.Interfaces) AddTypeReference(iface.InterfaceType);
 
@@ -155,6 +161,7 @@ namespace UdonExpressionDriver.Bootstrapper
                     if (_keepMembers.Add(e.FullName)) _workQueue.Enqueue(e);
                 }
 
+                // nested types are part of the parent's surface, keep them whole
                 foreach (var nt in td.NestedTypes)
                     KeepType(nt);
 
@@ -167,6 +174,7 @@ namespace UdonExpressionDriver.Bootstrapper
 
             private void WalkMethod(MethodDefinition md)
             {
+                // attributes are real refs, stripping one silently breaks reflection
                 AddTypeReference(md.ReturnType);
                 foreach (var p in md.Parameters) AddTypeReference(p.ParameterType);
                 foreach (var ca in md.CustomAttributes) AddTypeReference(ca.AttributeType);
@@ -188,6 +196,7 @@ namespace UdonExpressionDriver.Bootstrapper
                     }
                 }
 
+                // catch types only live in the eh table, never as instruction operands
                 foreach (var eh in md.Body.ExceptionHandlers)
                     if (eh.CatchType != null)
                         AddTypeReference(eh.CatchType);
@@ -215,6 +224,7 @@ namespace UdonExpressionDriver.Bootstrapper
 
             private void WalkMethodReference(MethodReference mref)
             {
+                // a call to a non-whitelisted method still drags that method in
                 var def = ResolveMethodDefinition(mref);
                 if (def != null)
                 {
@@ -283,7 +293,6 @@ namespace UdonExpressionDriver.Bootstrapper
                 return t ?? AllTypes().FirstOrDefault(x => x.FullName == fullName);
             }
 
-            // Member full name to a definition if possible.
             private MemberReference ResolveMember(string memberFullName)
             {
                 foreach (var t in AllTypes())
@@ -311,7 +320,7 @@ namespace UdonExpressionDriver.Bootstrapper
                 }
                 catch
                 {
-                    // ignored; unresolved refs (e.g. cross-assembly) are simply not followed
+                    // unresolved cross-assembly refs are simply not followed
                 }
 
                 return null;
@@ -326,7 +335,7 @@ namespace UdonExpressionDriver.Bootstrapper
                 }
                 catch
                 {
-                    // ignored
+                    // unresolved cross-assembly refs are simply not followed
                 }
 
                 return null;
@@ -341,7 +350,7 @@ namespace UdonExpressionDriver.Bootstrapper
                 }
                 catch
                 {
-                    // ignored
+                    // unresolved cross-assembly refs are simply not followed
                 }
 
                 return null;
@@ -373,6 +382,7 @@ namespace UdonExpressionDriver.Bootstrapper
     {
         public static void RemoveWhere<T>(this ICollection<T> collection, Func<T, bool> predicate)
         {
+            // can't mutate a collection while enumerating it, snapshot the matches
             var toRemove = collection.Where(predicate).ToList();
             foreach (var item in toRemove)
                 collection.Remove(item);

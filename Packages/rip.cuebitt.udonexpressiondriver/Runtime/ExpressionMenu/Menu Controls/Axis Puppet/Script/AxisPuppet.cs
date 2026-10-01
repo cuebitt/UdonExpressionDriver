@@ -9,12 +9,14 @@ using UnityEditor;
 
 namespace UdonExpressionDriver
 {
+    /// <summary>Number of axes the puppet exposes: two (X/Y) or four (directionals).</summary>
     public enum AxisPuppetType
     {
         Two,
         Four
     }
 
+    /// <summary>World-space two/four-axis puppet control; writes its value to a UEDPuppetHandler.</summary>
     [UdonBehaviourSyncMode(BehaviourSyncMode.Manual)]
     public class AxisPuppet : UdonSharpBehaviour
     {
@@ -52,6 +54,7 @@ namespace UdonExpressionDriver
 
         private Vector2 _valuePanelSize;
 
+        /// <summary>Header label shown at the top of the panel.</summary>
         public string Label
         {
             get => label;
@@ -63,14 +66,14 @@ namespace UdonExpressionDriver
             }
         }
 
+        /// <summary>Whether this puppet drives two axes or four.</summary>
         public AxisPuppetType AxisPuppetType
         {
             get => axisPuppetType;
             set => axisPuppetType = value;
         }
 
-        // Always normalize to 4 slots so index math below is safe. A 2-axis puppet only
-        // shows the first two and clears the others, so no stale text lingers after switching.
+        /// <summary>Per-axis labels; always normalized to four slots so index math is safe.</summary>
         public string[] AxisLabels
         {
             get => axisLabels;
@@ -91,19 +94,19 @@ namespace UdonExpressionDriver
 
                 if (AxisPuppetType == AxisPuppetType.Two)
                 {
+                    // 2-axis only shows +X and +Y, so blank the two labels it ignores
                     if (leftAxisLabel != null) leftAxisLabel.text = "";
                     if (bottomAxisLabel != null) bottomAxisLabel.text = "";
                 }
             }
         }
 
+        /// <summary>Current puppet value, clamped to 0..1 per axis; moves the pointer and sliders with it.</summary>
         public Vector2 PuppetValue
         {
             get => puppetValue;
             set
             {
-                // Clamp once and use the clamped value everywhere so the pointer and
-                // the sliders always agree (the pointer was using the raw input before).
                 var pv = new Vector2(Mathf.Clamp(value.x, 0f, 1f), Mathf.Clamp(value.y, 0f, 1f));
                 puppetValue = pv;
 
@@ -118,9 +121,7 @@ namespace UdonExpressionDriver
         {
             if (valuePanel != null) _valuePanelSize = valuePanel.sizeDelta;
 
-            // Re-apply: the controller seeds PuppetValue when opening the panel, which can run
-            // before Start (the GameObject is activated and seeded in the same frame), so the
-            // pointer may still be sitting at the panel center from the zero cached size.
+            // the controller can seed PuppetValue before Start caches the panel size
             _PositionPointer(puppetValue, _valuePanelSize);
         }
 
@@ -131,13 +132,16 @@ namespace UdonExpressionDriver
             if (valuePointer == null) return;
 
             var newPos = new Vector3(panelSize.x * value.x, panelSize.y * value.y, 0f);
+            // 0..1 panel coords to a centre-origin offset
             newPos -= new Vector3(panelSize.x * 0.5f, panelSize.y * 0.5f, 0f);
             valuePointer.localPosition = newPos;
         }
 
 #if !COMPILER_UDONSHARP && UNITY_EDITOR
+        /// <summary>Refreshes the panel when Inspector values change (editor only).</summary>
         public void OnValidate()
         {
+            // re-run the setters so inspector edits render without entering play mode
             Label = label;
             AxisLabels = axisLabels;
 
@@ -153,18 +157,23 @@ namespace UdonExpressionDriver
         }
 #endif
 
+        /// <summary>Wired to the X slider; merges the axis and pushes the value to the handler.</summary>
         public void OnXSliderValueChanged()
         {
+            // Vector2 is a struct: merge one axis, then push the whole value back
             var newPos = PuppetValue;
             newPos.x = xAxisSlider.value;
 
             PuppetValue = newPos;
 
+            // only this path notifies; seeding via the setter must not echo back
             SendValueUpdate();
         }
 
+        /// <summary>Wired to the Y slider; merges the axis and pushes the value to the handler.</summary>
         public void OnYSliderValueChanged()
         {
+            // same merge on the other axis
             var newPos = PuppetValue;
             newPos.y = yAxisSlider.value;
 
@@ -173,6 +182,7 @@ namespace UdonExpressionDriver
             SendValueUpdate();
         }
 
+        /// <summary>Called by the panel's close/header button; returns to the menu.</summary>
         public void OnHeaderClicked()
         {
             if (handler != null) handler._OnPuppetClose();

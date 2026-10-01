@@ -4,9 +4,7 @@ namespace UdonExpressionDriver
 {
     /// <summary>
     /// Contract for components that receive value changes from the world-space puppet
-    /// controls (RadialPuppet / AxisPuppet). Puppets hold a typed reference to this base
-    /// and call the methods directly, so no string-named events or [NetworkCallable]
-    /// wiring is needed. Concrete handlers override the methods they care about.
+    /// controls (RadialPuppet / AxisPuppet). Concrete handlers override the methods they care about.
     /// </summary>
     public abstract class UEDPuppetHandler : UdonSharpBehaviour
     {

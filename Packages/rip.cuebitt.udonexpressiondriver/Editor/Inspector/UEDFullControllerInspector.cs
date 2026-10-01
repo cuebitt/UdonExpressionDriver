@@ -7,14 +7,8 @@ using VRC.SDK3.Avatars.ScriptableObjects;
 
 namespace UdonExpressionDriver.Editor
 {
-    /// <summary>
-    /// FullController inspector: an "Expressions" section (Controller/Menu/Parameter assets,
-    /// mirroring VRCFury's Full Controller) that is the single way to populate the data arrays,
-    /// a "Settings" section (interact toggle, hand gesture emulation), a "Menu Views & Controls"
-    /// section (radial menu, puppets, hand gesture menu), and a Status summary. When a VRCFury
-    /// FullController is present its assets are imported automatically, but nothing is locked.
-    /// A "Re-import from VRCFury" button re-pulls the data.
-    /// </summary>
+    /// Expressions section (the single way to populate data arrays) + settings + menu views &
+    /// controls + status. VRCFury assets auto-import when present; nothing is locked.
     [CustomEditor(typeof(UEDFullController))]
     public class UEDFullControllerInspector : UEDBehaviourInspector
     {
@@ -37,6 +31,7 @@ namespace UdonExpressionDriver.Editor
 
         private void DrawCore()
         {
+            // idempotent and count-checked internally, so a repaint only re-imports when the data actually differs
             var controller = (UEDFullController)target;
             var vrcFuryPresent = UEDVrcFuryBridge.AutoImportMenu(controller);
 
@@ -75,6 +70,7 @@ namespace UdonExpressionDriver.Editor
             EditorGUILayout.PropertyField(serializedObject.FindProperty("handGestures"), new GUIContent("Hand Gesture Menu"));
             serializedObject.ApplyModifiedProperties();
 
+            // these stay unset until play/build, so list what the auto-linker will add rather than faking it now
             var willCreate = new List<string>(4);
             if (serializedObject.FindProperty("menuView").objectReferenceValue == null) willCreate.Add("Radial Menu");
             if (serializedObject.FindProperty("radialPuppet").objectReferenceValue == null) willCreate.Add("Radial Puppet");
@@ -110,6 +106,7 @@ namespace UdonExpressionDriver.Editor
         {
             BeginSection("Expressions");
 
+            // own SerializedObject, not the inherited one: these fields are hidden from the default draw
             var serialized = new SerializedObject(controller);
             EditorGUILayout.PropertyField(serialized.FindProperty("importedAnimatorController"), new GUIContent("Controller"));
 
@@ -119,6 +116,7 @@ namespace UdonExpressionDriver.Editor
             var newMenu = (VRCExpressionsMenu)EditorGUILayout.ObjectField("Menu", menu, typeof(VRCExpressionsMenu), false);
             var newParameters = (VRCExpressionParameters)EditorGUILayout.ObjectField("Parameter", parameters, typeof(VRCExpressionParameters), false);
 
+            // stored by GUID so a VRCFury import and a manual assignment land in the same field
             if (newMenu != menu) UEDVrcFuryBridge.SetStoredAsset(serialized, "importedMenuGuid", newMenu);
             if (newParameters != parameters) UEDVrcFuryBridge.SetStoredAsset(serialized, "importedParametersGuid", newParameters);
             serialized.ApplyModifiedProperties();
@@ -144,6 +142,7 @@ namespace UdonExpressionDriver.Editor
 
         private static void DrawStatus(UEDFullController controller)
         {
+            // read-only summary: the data arrays and Animator are populated elsewhere, not here
             var (paramCount, controlCount) = UEDVrcFuryBridge.CountData(controller);
 
             BeginSection("Status");
