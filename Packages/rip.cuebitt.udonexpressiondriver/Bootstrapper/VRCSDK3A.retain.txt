@@ -1,0 +1,66 @@
+System.Boolean VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionParameters/Parameter::networkSynced
+System.Boolean VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionParameters/Parameter::saved
+System.Boolean VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionParameters::IsWithinBudget()
+System.Boolean VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionParameters::IsWithinBudget(System.String&)
+System.Boolean VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionParameters::isEmpty
+System.Boolean VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/Parameter::IsNull(VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/Parameter)
+System.Collections.Generic.List`1<VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control> VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu::controls
+System.Int32 VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionParameters/ValueType::value__
+System.Int32 VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionParameters::CalcTotalCost()
+System.Int32 VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionParameters::MAX_PARAMETER_COST
+System.Int32 VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionParameters::MAX_PARAMETER_COUNT
+System.Int32 VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionParameters::TypeCost(VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionParameters/ValueType)
+System.Int32 VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/ControlType::value__
+System.Int32 VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/Parameter::_hash
+System.Int32 VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/Parameter::get_hash()
+System.Int32 VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/Parameter::hash()
+System.Int32 VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/Style::value__
+System.Int32 VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu::MAX_CONTROLS
+System.Single VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionParameters/Parameter::defaultValue
+System.Single VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control::value
+System.String VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionParameters/Parameter::name
+System.String VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/Label::name
+System.String VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/Parameter::name
+System.String VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control::name
+System.Void VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionParameters/Parameter::.ctor()
+System.Void VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionParameters::.ctor()
+System.Void VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/Parameter::.ctor()
+System.Void VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control::.ctor()
+System.Void VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu::.ctor()
+UnityEngine.Texture2D VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/Label::icon
+UnityEngine.Texture2D VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control::icon
+VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionParameters
+VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionParameters VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu::Parameters
+VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionParameters/Parameter
+VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionParameters/Parameter VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionParameters::FindParameter(System.String)
+VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionParameters/Parameter VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionParameters::GetParameter(System.Int32)
+VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionParameters/Parameter[] VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionParameters::parameters
+VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionParameters/ValueType
+VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionParameters/ValueType VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionParameters/Parameter::valueType
+VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionParameters/ValueType VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionParameters/ValueType::Bool
+VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionParameters/ValueType VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionParameters/ValueType::Float
+VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionParameters/ValueType VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionParameters/ValueType::Int
+VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu
+VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control::subMenu
+VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control
+VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/ControlType
+VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/ControlType VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/ControlType::Button
+VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/ControlType VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/ControlType::FourAxisPuppet
+VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/ControlType VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/ControlType::RadialPuppet
+VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/ControlType VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/ControlType::SubMenu
+VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/ControlType VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/ControlType::Toggle
+VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/ControlType VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/ControlType::TwoAxisPuppet
+VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/ControlType VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control::type
+VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/Label
+VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/Label VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control::GetLabel(System.Int32)
+VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/Label[] VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control::labels
+VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/Parameter
+VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/Parameter VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control::GetSubParameter(System.Int32)
+VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/Parameter VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control::parameter
+VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/Parameter[] VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control::subParameters
+VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/Style
+VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/Style VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/Style::Style1
+VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/Style VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/Style::Style2
+VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/Style VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/Style::Style3
+VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/Style VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/Style::Style4
+VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control/Style VRC.SDK3.Avatars.ScriptableObjects.VRCExpressionsMenu/Control::style

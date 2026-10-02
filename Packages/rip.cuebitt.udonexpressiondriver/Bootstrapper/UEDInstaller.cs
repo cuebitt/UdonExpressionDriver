@@ -66,7 +66,7 @@ namespace UdonExpressionDriver.Bootstrapper
             // into the package so the editor asmdef can reference it
             var outputAssemblyPath =
                 Path.GetFullPath($"Packages/{packageName}/Editor/VRCSDK/Plugins/VRCSDK3A.dll");
-            StripAssembly(avatarsDllPath, outputAssemblyPath);
+            StripAssembly(packageName, avatarsDllPath, outputAssemblyPath);
 
             Debug.Log("[UdonExpressionDriver] Importing downloaded assets...");
             // sync import so ChangeGuid has a meta to rewrite, which pins the guid
@@ -161,18 +161,17 @@ namespace UdonExpressionDriver.Bootstrapper
             return true;
         }
 
-        private static void StripAssembly(string inputPath, string outputPath)
+        private static void StripAssembly(string packageName, string inputPath, string outputPath)
         {
-            // the only two VRC types the editor code actually touches
-            var whitelist = new List<string>
-            {
-                "VRCExpressionsMenu",
-                "VRCExpressionParameters"
-            };
+            // the exact slice of VRCSDK3A.dll the editor code touches, committed
+            // to the package; regenerate from git history (old BFS stripper) if
+            // the avatars SDK version changes
+            var retainListPath =
+                Path.GetFullPath($"Packages/{packageName}/Bootstrapper/VRCSDK3A.retain.txt");
 
             // the Plugins folder doesn't exist yet on a fresh install
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
-            AssemblyStripper.StripExcept(inputPath, whitelist, outputPath);
+            AssemblyStripper.StripExcept(inputPath, retainListPath, outputPath);
         }
 
         private static string GetPackageNameForType(Type type)
